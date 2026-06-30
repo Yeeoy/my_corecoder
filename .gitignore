@@ -1,0 +1,12 @@
+.venv
+.claude
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.idea/
+
