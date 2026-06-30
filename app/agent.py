@@ -1,7 +1,9 @@
 import concurrent.futures
 import inspect
+import time
 
 from app.context import ContextManager
+from app.events import EventBus, EventName
 from app.llm import LLM
 from app.prompt import system_prompt
 from app.tools import AgentTool
@@ -15,6 +17,7 @@ class Agent:
         tools: list[Tool],
         max_content_tokens: int = 128_000,
         max_rounds: int = 50,
+        events: EventBus | None = None,
     ):
         self.llm = llm
         self.tools = tools
@@ -23,6 +26,7 @@ class Agent:
         self.context = ContextManager(max_tokens=max_content_tokens)
         self.max_content_tokens = max_content_tokens
         self.max_rounds = max_rounds
+        self.events = events or EventBus()
         self._system = system_prompt(self.tools)
 
         # sub agent
@@ -36,11 +40,48 @@ class Agent:
     def _tool_schemas(self) -> list[dict]:
         return [t.schema() for t in self.tools]
 
+    def _maybe_compress_context(self):
+        before_messages = len(self.messages)
+
+        self.events.emit(
+            EventName.BEFORE_CONTEXT_COMPRESS,
+            {
+                "message_count": before_messages,
+            },
+        )
+
+        compressed = self.context.maybe_compress(self.messages, self.llm)
+
+        self.events.emit(
+            EventName.AFTER_CONTEXT_COMPRESS,
+            {
+                "compressed": compressed,
+                "before_message_count": before_messages,
+                "after_message_count": len(self.messages),
+            },
+        )
+
     def chat(self, user_input: str, on_token=None, on_tool=None, on_reasoning=None) -> str:
         self.messages.append({"role": "user", "content": user_input})
-        self.context.maybe_compress(self.messages, self.llm)
+        self.events.emit(
+            EventName.USER_MESSAGE,
+            {
+                "input_chars": len(user_input),
+                "input_preview": user_input[:200],
+            },
+        )
+        self._maybe_compress_context()
 
-        for _ in range(self.max_rounds):
+        for _round_index in range(self.max_rounds):
+            self.events.emit(
+                EventName.BEFORE_LLM_CALL,
+                {
+                    "round_index": _round_index + 1,
+                    "max_rounds": self.max_rounds,
+                    "message_count": len(self.messages),
+                    "tool_count": len(self.tools),
+                },
+            )
             resp = self.llm.chat(
                 self._full_messages(),
                 self._tool_schemas(),
@@ -51,9 +92,30 @@ class Agent:
             # no tool calls -> LLM is done, return text
             if not resp.tool_calls:
                 self.messages.append(resp.message)
+                self.events.emit(
+                    EventName.AFTER_LLM_CALL,
+                    {
+                        "round_index": _round_index + 1,
+                        "content_chars": len(resp.content or ""),
+                        "content_preview": (resp.content or "")[:200],
+                        "tool_call_count": len(resp.tool_calls),
+                        "tool_calls": [tc.name for tc in resp.tool_calls],
+                    },
+                )
+                self.events.emit(EventName.AGENT_FINISH, {"message": "Agent finished."})
                 return resp.content
 
             self.messages.append(resp.message)
+            self.events.emit(
+                EventName.AFTER_LLM_CALL,
+                {
+                    "round_index": _round_index + 1,
+                    "content_chars": len(resp.content or ""),
+                    "content_preview": (resp.content or "")[:200],
+                    "tool_call_count": len(resp.tool_calls),
+                    "tool_calls": [tc.name for tc in resp.tool_calls],
+                },
+            )
 
             try:
                 if len(resp.tool_calls) == 1:
@@ -61,7 +123,6 @@ class Agent:
                     if on_tool:
                         on_tool(tc.name, tc.arguments)
                     result = self._exec_tool(tc)
-                    print(result)
                     self.messages.append(
                         {
                             "role": "tool",
@@ -80,27 +141,91 @@ class Agent:
                             }
                         )
             except KeyboardInterrupt:
-                self._answer_pending_tool_calls(self.messages, self.llm)
+                self._answer_pending_tool_calls(resp.tool_calls)
                 print("[red]KeyboardInterrupt[/red]")
+                raise
+            except Exception as e:
+                self.events.emit(
+                    EventName.AGENT_ERROR,
+                    {
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
                 raise
 
             # compress if tool_outputs are big
-            self.context.maybe_compress(self.messages, self.llm)
+            self._maybe_compress_context()
+
+        self.events.emit(
+            EventName.AGENT_ERROR,
+            {
+                "error": "reached maximum tool-call rounds",
+                "error_type": None,
+            },
+        )
         return "reached maximum tool-call rounds"
 
     def _exec_tool(self, tc) -> str:
+        started = time.perf_counter()
+        self.events.emit(
+            EventName.BEFORE_TOOL_CALL,
+            {
+                "tool_call_id": tc.id,
+                "name": tc.name,
+                "arguments": tc.arguments,
+            },
+        )
         tool = self._tool_by_name.get(tc.name)
         if tool is None:
+            self.events.emit(
+                EventName.TOOL_ERROR,
+                {
+                    "tool_call_id": tc.id,
+                    "name": tc.name,
+                    "error": f"Error: unknown tool '{tc.name}'",
+                    "error_type": "UnknownToolError",
+                },
+            )
             return f"Error: unknown tool '{tc.name}'"
 
         try:
             inspect.signature(tool.execute).bind(**tc.arguments)
         except TypeError as e:
+            self.events.emit(
+                EventName.TOOL_ERROR,
+                {
+                    "tool_call_id": tc.id,
+                    "name": tc.name,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
             return f"Error: bad arguments for {tc.name}: {e}"
 
         try:
-            return tool.execute(**tc.arguments)
+            result = tool.execute(**tc.arguments)
+            self.events.emit(
+                EventName.AFTER_TOOL_CALL,
+                {
+                    "tool_call_id": tc.id,
+                    "name": tc.name,
+                    "duration_ms": int((time.perf_counter() - started) * 1000),
+                    "result_chars": len(result),
+                    "result_preview": result[:1000],
+                },
+            )
+            return result
         except Exception as e:
+            self.events.emit(
+                EventName.TOOL_ERROR,
+                {
+                    "tool_call_id": tc.id,
+                    "name": tc.name,
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
             return f"Error executing {tc.name}: {e}"
 
     def _exec_tools_parallel(self, tool_calls, on_tool=None) -> list[str]:
@@ -112,14 +237,14 @@ class Agent:
             return [f.result() for f in futures]
 
     def _answer_pending_tool_calls(self, tool_calls):
-        answered = {m.get("tool_call_id") for m in self.messages if m.get("tole") == "tool"}
+        answered = {m.get("tool_call_id") for m in self.messages if m.get("role") == "tool"}
         for tc in tool_calls:
             if tc.id not in answered:
                 self.messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": tc.id,
-                        "content": ["interrupted"],
+                        "content": "interrupted",
                     }
                 )
 
