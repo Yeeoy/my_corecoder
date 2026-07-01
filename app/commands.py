@@ -1,18 +1,16 @@
 class CommandRouter:
-    def __init__(self, console, events, trace, debug, runlog):
+    def __init__(self, console, events, trace, debug, runlog, skills):
         self.console = console
         self.events = events
         self.trace = trace
         self.debug = debug
         self.runlog = runlog
+        self.skills = skills
 
     def handle(self, user_input: str) -> bool:
 
         if not user_input.startswith("/"):
             return False
-
-        if user_input == "":
-            return True
 
         if user_input == "/debug":
             status = "on" if self.debug.enabled else "off"
@@ -89,6 +87,32 @@ class CommandRouter:
             self.console.print(self.runlog.format_run(run_id))
             return True
 
+        if user_input == "/skills":
+            self.console.print(self.skills.list_skills())
+            return True
+
+        if user_input == "/skill active":
+            self.console.print(self.skills.list_active_skills())
+            return True
+
+        if user_input.startswith("/skill show "):
+            skill_name = user_input[len("/skill show ") :].strip()
+            self.console.print(self.skills.read_skill(skill_name))
+            return True
+
+        if user_input.startswith("/skill use "):
+            skill_name = user_input[len("/skill use ") :].strip()
+            self.console.print(self.skills.enable_skill(skill_name))
+            return True
+
+        if user_input == "/skill render":
+            self.console.print(self.skills.render_active_skills())
+            return True
+
+        if user_input == "/skill clear":
+            self.console.print(self.skills.clear())
+            return True
+
         if user_input in {"/", "/help"}:
             self.print_usage()
             return True
@@ -96,10 +120,6 @@ class CommandRouter:
         self.console.print(f"[yellow]Unknown command:[/yellow] {user_input}")
         self.print_usage()
         return True
-
-    def _debug_status(self):
-        status = "on" if self.debug.enabled else "off"
-        self.console.print(f"Debug events: {status}")
 
     def print_usage(self):
         self.console.print("\n[blue]Usage:[/blue]")
@@ -118,4 +138,12 @@ class CommandRouter:
         self.console.print("  /run <id> tools: show specific run tool events")
         self.console.print("  /run <id> errors: show specific run error events")
         self.console.print("  /run current: show current run")
+        self.console.print("  /run current tools: show current run tool events")
+        self.console.print("  /run current errors: show current run error events")
+        self.console.print("  /skills: list all skills")
+        self.console.print("  /skill active: list active skills")
+        self.console.print("  /skill show <name>: show skill content")
+        self.console.print("  /skill use <name>: enable a skill")
+        self.console.print("  /skill render: render active skill cards")
+        self.console.print("  /skill clear: clear all active skills")
         self.console.print("  /help or /: show usage")

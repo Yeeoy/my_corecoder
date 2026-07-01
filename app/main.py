@@ -9,7 +9,8 @@ from app.debug import DebugPrinter
 from app.events import EventBus
 from app.llm import LLM
 from app.runlog import RunLogger
-from app.tools import ALL_TOOLS
+from app.skills import SkillManager
+from app.tools import create_tools
 from app.trace import TraceCollector
 
 # 状态追踪
@@ -23,6 +24,10 @@ events = EventBus()
 trace = TraceCollector()
 debug = DebugPrinter(console)
 runlog = RunLogger()
+skills = SkillManager()
+skills.load_all_skills()
+
+tools = create_tools(skills)
 
 events.on("*", trace.handle)
 events.on("*", debug.handle)
@@ -67,16 +72,22 @@ def main():
     llm = LLM(config.CORECODER_MODEL, config.OPENAI_API_KEY, config.OPENAI_BASE_URL)
     agent = Agent(
         llm=llm,
-        tools=ALL_TOOLS,
+        tools=tools,
         max_content_tokens=128_000,
         max_rounds=50,
         events=events,
+        extra_system_context=skills.render_active_skills,
     )
+
+    command_router = CommandRouter(console, events, trace, debug, runlog, skills)
+
     while True:
         raw_input = input("\n\033[32mUser:\033[0m ")
         user_input = raw_input.strip()
 
-        command_router = CommandRouter(console, events, trace, debug, runlog)
+        if user_input == "":
+            continue
+
         if command_router.handle(user_input):
             continue
 

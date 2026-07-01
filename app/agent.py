@@ -18,6 +18,7 @@ class Agent:
         max_content_tokens: int = 128_000,
         max_rounds: int = 50,
         events: EventBus | None = None,
+        extra_system_context=None,
     ):
         self.llm = llm
         self.tools = tools
@@ -28,6 +29,7 @@ class Agent:
         self.max_rounds = max_rounds
         self.events = events or EventBus()
         self._system = system_prompt(self.tools)
+        self.extra_system_context = extra_system_context
 
         # sub agent
         for t in self.tools:
@@ -35,7 +37,12 @@ class Agent:
                 t._parent_agent = self
 
     def _full_messages(self) -> list[dict]:
-        return [{"role": "system", "content": self._system}] + self.messages
+        system = self._system
+        if self.extra_system_context:
+            extra = self.extra_system_context()
+            if extra:
+                system += f"\n\n{extra}"
+        return [{"role": "system", "content": system}] + self.messages
 
     def _tool_schemas(self) -> list[dict]:
         return [t.schema() for t in self.tools]
