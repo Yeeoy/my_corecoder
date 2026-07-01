@@ -3,6 +3,7 @@ import sys
 from rich.console import Console
 
 from app.agent import Agent
+from app.commands import CommandRouter
 from app.config import config
 from app.debug import DebugPrinter
 from app.events import EventBus
@@ -74,104 +75,9 @@ def main():
     while True:
         raw_input = input("\n\033[32mUser:\033[0m ")
         user_input = raw_input.strip()
-        if user_input == "":
-            continue
 
-        if user_input == "/debug":
-            status = "on" if debug.enabled else "off"
-            console.print(f"Debug events: {status}")
-            continue
-
-        if user_input == "/debug on":
-            debug.on()
-            console.print("[green]Debug events enabled.[/green]")
-            continue
-
-        if user_input == "/debug off":
-            debug.off()
-            console.print("[yellow]Debug events disabled.[/yellow]")
-            continue
-
-        if user_input == "/trace":
-            console.print(trace.format())
-            continue
-
-        if user_input == "/trace tools":
-            console.print(trace.format_tools())
-            continue
-
-        if user_input == "/trace errors":
-            console.print(trace.format_errors())
-            continue
-
-        if user_input == "/trace clear":
-            trace.clear()
-            console.print("[green]Trace cleared.[/green]")
-            continue
-
-        if user_input == "/runs":
-            console.print(runlog.list_run_ids())
-            continue
-
-        if user_input in {"/run last", "/runs last"}:
-            console.print(runlog.format_last_run())
-            continue
-
-        if user_input in {"/run last tools", "/runs last tools"}:
-            console.print(runlog.format_last_run_tools())
-            continue
-
-        if user_input.startswith("/run ") and user_input.endswith(" tools"):
-            run_id = user_input[len("/run ") : -len(" tools")].strip()
-            console.print(runlog.format_run_tools(run_id))
-            continue
-
-        if user_input in {"/run last errors", "/runs last errors"}:
-            console.print(runlog.format_last_run_errors())
-            continue
-
-        if user_input.startswith("/run ") and user_input.endswith(" errors"):
-            run_id = user_input[len("/run ") : -len(" errors")].strip()
-            console.print(runlog.format_run_errors(run_id))
-            continue
-
-        if user_input == "/run current tools":
-            console.print(runlog.format_current_run_tools())
-            continue
-
-        if user_input == "/run current errors":
-            console.print(runlog.format_current_run_errors())
-            continue
-
-        if user_input == "/run current":
-            console.print(runlog.format_current_run())
-            continue
-
-        if user_input.startswith("/run "):
-            run_id = user_input[5:].strip()
-            console.print(runlog.format_run(run_id))
-            continue
-
-        if user_input.startswith("/"):
-            print("\n\033[34mUsage:\033[0m ")
-            print("  /debug: show debug status")
-            print("  /debug on: print events live")
-            print("  /debug off: stop printing events live")
-            print("  /trace: show trace")
-            print("  /trace tools: show tool trace")
-            print("  /trace errors: show error trace")
-            print("  /trace clear: clear trace")
-            print("  /runs: show recent run ids")
-            print("  /run last: show last run")
-            print("  /run last tools: show last run tool events")
-            print("  /run <id>: show specific run")
-            print("  /run <id> tools: show specific run tool events")
-            print("  /run last errors: show last run error events")
-            print("  /run <id> errors: show specific run error events")
-            print("  /run current: show current run")
-            print("  /run current tools: show current run tool events")
-            print("  /run current errors: show current run error events")
-            print("  /: show usage")
+        command_router = CommandRouter(console, events, trace, debug, runlog)
+        if command_router.handle(user_input):
             continue
 
         reset_state()
