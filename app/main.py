@@ -11,6 +11,7 @@ from app.llm import LLM
 from app.permission import PermissionManager
 from app.runlog import RunLogger
 from app.skills import SkillManager
+from app.todo import TodoManager
 from app.tools import create_tools
 from app.trace import TraceCollector
 
@@ -27,7 +28,8 @@ debug = DebugPrinter(console)
 runlog = RunLogger()
 skills = SkillManager()
 skills.load_all_skills()
-tools = create_tools(skills)
+todo_manager = TodoManager()
+tools = create_tools(skills, todo_manager)
 permission_manager = PermissionManager()
 
 events.on("*", trace.handle)

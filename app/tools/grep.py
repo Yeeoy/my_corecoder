@@ -1,3 +1,5 @@
+import fnmatch
+import os
 import re
 from pathlib import Path
 
@@ -43,10 +45,14 @@ class GrepTool(Tool):
 
         matches = []
         for fp in files:
+            # read file as bytes, skip binary files
             try:
-                text = fp.read_text(encoding="utf-8", errors="ignore")
+                raw = fp.read_bytes()
             except OSError:
                 continue
+            if b"\x00" in raw[:8192]:
+                continue
+            text = raw.decode("utf-8", errors="ignore")
             for lineno, line in enumerate(text.splitlines(), 1):
                 if regex.search(line):
                     matches.append(f"{fp}:{lineno}: {line.rstrip()}")
@@ -58,15 +64,24 @@ class GrepTool(Tool):
 
     @staticmethod
     def _walk(root: Path, include: str | None) -> list[Path]:
-        """Walk dir tree, skipping junk dirs."""
+        """Walk dir tree with directory pruning, skipping junk dirs entirely.
+
+        Uses os.walk(top_down=True) so we can prune skipped directories
+        in-place, avoiding iteration over their contents altogether.
+        Previous implementation used Path.rglob() which generated entries
+        for every file inside skipped dirs (e.g. thousands in node_modules)
+        before filtering them out.
+        """
         results = []
-        for item in root.rglob(include or "*"):
-            # skip junk dirs *inside* the search root - matching item.parts would
-            # also catch an ancestor named e.g. "build" and hide the whole tree
-            if any(part in _SKIP_DIRS for part in item.relative_to(root).parts):
-                continue
-            if item.is_file():
-                results.append(item)
-            if len(results) >= 5000:
-                break
+        root_str = str(root)
+        for dirpath, dirnames, filenames in os.walk(root_str, topdown=True):
+            # prune skipped dirs in-place so os.walk never descends into them
+            dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+
+            for fname in filenames:
+                if include and not fnmatch.fnmatch(fname, include):
+                    continue
+                results.append(Path(dirpath) / fname)
+                if len(results) >= 5000:
+                    return results
         return results
