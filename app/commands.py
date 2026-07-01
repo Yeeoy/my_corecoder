@@ -1,11 +1,12 @@
 class CommandRouter:
-    def __init__(self, console, events, trace, debug, runlog, skills):
+    def __init__(self, console, events, trace, debug, runlog, skills, permission_manager):
         self.console = console
         self.events = events
         self.trace = trace
         self.debug = debug
         self.runlog = runlog
         self.skills = skills
+        self.permission_manager = permission_manager
 
     def handle(self, user_input: str) -> bool:
 
@@ -113,6 +114,15 @@ class CommandRouter:
             self.console.print(self.skills.clear())
             return True
 
+        if user_input == "/permission":
+            self.console.print(f"Permission mode: {self.permission_manager.get_mode()}")
+            return True
+
+        if user_input.startswith("/permission mode "):
+            mode = user_input[len("/permission mode ") :].strip()
+            self.console.print(self.permission_manager.set_mode(mode))
+            return True
+
         if user_input in {"/", "/help"}:
             self.print_usage()
             return True
@@ -146,4 +156,8 @@ class CommandRouter:
         self.console.print("  /skill use <name>: enable a skill")
         self.console.print("  /skill render: render active skill cards")
         self.console.print("  /skill clear: clear all active skills")
+        self.console.print("  /permission: show current permission mode")
+        self.console.print("  /permission mode default: dangerous bash requires confirmation")
+        self.console.print("  /permission mode strict: dangerous bash is denied")
+        self.console.print("  /permission mode yolo: allow all tool calls")
         self.console.print("  /help or /: show usage")

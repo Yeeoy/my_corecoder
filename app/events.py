@@ -21,6 +21,10 @@ class EventName:
     BEFORE_CONTEXT_COMPRESS = "before_context_compress"
     AFTER_CONTEXT_COMPRESS = "after_context_compress"
 
+    PERMISSION_CHECK = "permission_check"
+    PERMISSION_CONFIRMED = "permission_confirmed"
+    PERMISSION_DENIED = "permission_denied"
+
 
 class EventBus:
     def __init__(self):

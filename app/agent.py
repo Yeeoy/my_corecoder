@@ -5,6 +5,7 @@ import time
 from app.context import ContextManager
 from app.events import EventBus, EventName
 from app.llm import LLM
+from app.permission import PermissionManager
 from app.prompt import system_prompt
 from app.tools import AgentTool
 from app.tools.base import Tool
@@ -19,6 +20,7 @@ class Agent:
         max_rounds: int = 50,
         events: EventBus | None = None,
         extra_system_context=None,
+        permission_manager: PermissionManager | None = None,
     ):
         self.llm = llm
         self.tools = tools
@@ -30,6 +32,7 @@ class Agent:
         self.events = events or EventBus()
         self._system = system_prompt(self.tools)
         self.extra_system_context = extra_system_context
+        self.permission_manager = permission_manager or PermissionManager()
 
         # sub agent
         for t in self.tools:
@@ -173,6 +176,71 @@ class Agent:
         )
         return "reached maximum tool-call rounds"
 
+    def _check_permission(self, tool_name: str, arguments: dict) -> str | None:
+        decision = self.permission_manager.check_tool_call(tool_name, arguments)
+
+        self.events.emit(
+            EventName.PERMISSION_CHECK,
+            {
+                "tool": tool_name,
+                "decision": decision.action,
+                "reason": decision.reason,
+                "arguments_preview": str(arguments)[:300],
+            },
+        )
+
+        if decision.action == "allow":
+            return None
+
+        if decision.action == "deny":
+            message = (
+                f"Permission denied: {decision.reason}\n"
+                "Do not retry the same destructive intent with an alternative command."
+            )
+            self.events.emit(
+                EventName.PERMISSION_DENIED,
+                {
+                    "tool": tool_name,
+                    "reason": decision.reason,
+                    "arguments_preview": str(arguments)[:300],
+                },
+            )
+            return message
+
+        if decision.action == "confirm":
+            print("\n⚠️ Permission required")
+            print(f"Tool: {tool_name}")
+            print(f"Reason: {decision.reason}")
+            print(f"Arguments: {arguments}")
+            answer = input("Allow this tool call? [y/N]: ").strip().lower()
+
+            if answer == "y":
+                self.events.emit(
+                    EventName.PERMISSION_CONFIRMED,
+                    {
+                        "tool": tool_name,
+                        "reason": decision.reason,
+                        "arguments_preview": str(arguments)[:300],
+                    },
+                )
+                return None
+
+            message = (
+                f"Permission denied by user: {decision.reason}\n"
+                "Do not retry the same destructive intent with an alternative command."
+            )
+            self.events.emit(
+                EventName.PERMISSION_DENIED,
+                {
+                    "tool": tool_name,
+                    "reason": decision.reason,
+                    "arguments_preview": str(arguments)[:300],
+                },
+            )
+            return message
+
+        return None
+
     def _exec_tool(self, tc) -> str:
         started = time.perf_counter()
         self.events.emit(
@@ -209,6 +277,21 @@ class Agent:
                 },
             )
             return f"Error: bad arguments for {tc.name}: {e}"
+
+        permission_error = self._check_permission(tc.name, tc.arguments)
+        if permission_error:
+            self.events.emit(
+                EventName.AFTER_TOOL_CALL,
+                {
+                    "tool_call_id": tc.id,
+                    "name": tc.name,
+                    "duration_ms": int((time.perf_counter() - started) * 1000),
+                    "result_chars": len(permission_error),
+                    "result_preview": permission_error,
+                    "success": False,
+                },
+            )
+            return permission_error
 
         try:
             result = tool.execute(**tc.arguments)

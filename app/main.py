@@ -8,6 +8,7 @@ from app.config import config
 from app.debug import DebugPrinter
 from app.events import EventBus
 from app.llm import LLM
+from app.permission import PermissionManager
 from app.runlog import RunLogger
 from app.skills import SkillManager
 from app.tools import create_tools
@@ -26,8 +27,8 @@ debug = DebugPrinter(console)
 runlog = RunLogger()
 skills = SkillManager()
 skills.load_all_skills()
-
 tools = create_tools(skills)
+permission_manager = PermissionManager()
 
 events.on("*", trace.handle)
 events.on("*", debug.handle)
@@ -77,9 +78,10 @@ def main():
         max_rounds=50,
         events=events,
         extra_system_context=skills.render_active_skills,
+        permission_manager=permission_manager,
     )
 
-    command_router = CommandRouter(console, events, trace, debug, runlog, skills)
+    command_router = CommandRouter(console, events, trace, debug, runlog, skills, permission_manager)
 
     while True:
         raw_input = input("\n\033[32mUser:\033[0m ")

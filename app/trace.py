@@ -129,6 +129,19 @@ class TraceCollector:
                 f"   messages: {payload.get('before_message_count')} -> {payload.get('after_message_count')}"
             )
 
+        if event == EventName.PERMISSION_CHECK:
+            return (
+                f"   tool: {payload.get('tool')}\n"
+                f"   decision: {payload.get('decision')}\n"
+                f"   reason: {payload.get('reason')}"
+            )
+
+        if event == EventName.PERMISSION_CONFIRMED:
+            return f"   tool: {payload.get('tool')}\n   confirmed: {payload.get('reason')}"
+
+        if event == EventName.PERMISSION_DENIED:
+            return f"   tool: {payload.get('tool')}\n   denied: {payload.get('reason')}"
+
         return f"   {payload}"
 
     @staticmethod

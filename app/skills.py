@@ -47,11 +47,7 @@ class SkillManager:
         if skill_name not in self.list_skills():
             return []
         root = self._skill_dir(skill_name)
-        return sorted(
-            str(f.relative_to(root))
-            for f in root.rglob("*")
-            if f.is_file() and not f.name.startswith(".")
-        )
+        return sorted(str(f.relative_to(root)) for f in root.rglob("*") if f.is_file() and not f.name.startswith("."))
 
     # ── reading content ─────────────────────────────────────────────
 
@@ -119,7 +115,8 @@ class SkillManager:
             "# Active Skills",
             "The following skills are available. This information IS authoritative — "
             "answer questions about available skills directly from this list without reading any files. "
-            "Only use read_skill / list_skill_files / read_skill_file when you need the FULL instruction content to execute a skill.",
+            "Only use read_skill / list_skill_files / read_skill_file "
+            "when you need the FULL instruction content to execute a skill.",
         ]
 
         for skill_name in sorted(self.active_skills):
