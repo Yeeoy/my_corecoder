@@ -234,7 +234,10 @@ class PermissionManager:
             return PermissionDecision("deny", "missing file path")
 
         try:
-            return Path(file_path).expanduser().resolve()
+            p = Path(file_path).expanduser()
+            if p.is_absolute():
+                return p.resolve()
+            return (self.workspace_root / p).resolve()
         except Exception:
             return PermissionDecision("deny", f"invalid file path: {file_path}")
 

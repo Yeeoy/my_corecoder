@@ -21,6 +21,7 @@ class Agent:
         events: EventBus | None = None,
         extra_system_context=None,
         permission_manager: PermissionManager | None = None,
+        runtime_state=None,
     ):
         self.llm = llm
         self.tools = tools
@@ -33,6 +34,7 @@ class Agent:
         self._system = system_prompt(self.tools)
         self.extra_system_context = extra_system_context
         self.permission_manager = permission_manager or PermissionManager()
+        self.runtime_state = runtime_state
 
         # sub agent
         for t in self.tools:
@@ -53,6 +55,10 @@ class Agent:
     def _maybe_compress_context(self):
         before_messages = len(self.messages)
 
+        runtime_state = ""
+        if self.runtime_state:
+            runtime_state = self.runtime_state.render()
+
         self.events.emit(
             EventName.BEFORE_CONTEXT_COMPRESS,
             {
@@ -60,12 +66,19 @@ class Agent:
             },
         )
 
-        compressed = self.context.maybe_compress(self.messages, self.llm)
+        result = self.context.maybe_compress(
+            self.messages,
+            self.llm,
+            runtime_state=runtime_state,
+        )
 
         self.events.emit(
             EventName.AFTER_CONTEXT_COMPRESS,
             {
-                "compressed": compressed,
+                "compressed": result.compressed,
+                "layers": result.layers,
+                "before_tokens": result.before_tokens,
+                "after_tokens": result.after_tokens,
                 "before_message_count": before_messages,
                 "after_message_count": len(self.messages),
             },
@@ -352,10 +365,20 @@ class Agent:
     def _exec_tools_parallel(self, tool_calls, on_tool=None) -> list[str]:
         # Run tools sequentially if any tool requires permission
         if self._should_run_tools_sequentially(tool_calls):
-            return [self._exec_tool(tc) for tc in tool_calls]
+            results = []
+
+            for tc in tool_calls:
+                if on_tool:
+                    on_tool(tc.name, tc.arguments)
+
+                results.append(self._exec_tool(tc))
+
+            return results
+
         for tc in tool_calls:
             if on_tool:
                 on_tool(tc.name, tc.arguments)
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
             futures = [pool.submit(self._exec_tool, tc) for tc in tool_calls]
             return [f.result() for f in futures]

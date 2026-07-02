@@ -21,7 +21,7 @@ class GrepTool(Tool):
             },
             "path": {
                 "type": "string",
-                "description": "File or directory to search (default: cwd)",
+                "description": "File or directory to search (default: workspace root)",
             },
             "include": {
                 "type": "string",
@@ -31,13 +31,24 @@ class GrepTool(Tool):
         "required": ["pattern"],
     }
 
+    def __init__(self, workspace_root: str | Path | None = None):
+        self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
+
+    def _resolve_path(self, path: str | None) -> Path:
+        if not path or path == ".":
+            return self.workspace_root
+        p = Path(path).expanduser()
+        if p.is_absolute():
+            return p.resolve()
+        return (self.workspace_root / p).resolve()
+
     def execute(self, pattern: str, path: str = ".", include: str | None = None) -> str:
         try:
             regex = re.compile(pattern)
         except re.error as e:
             return f"Invalid regex: {e}"
 
-        base = Path(path).expanduser().resolve()
+        base = self._resolve_path(path)
         if not base.exists():
             return f"Error: {path} not found"
 

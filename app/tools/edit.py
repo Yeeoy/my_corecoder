@@ -41,9 +41,18 @@ class EditFileTool(Tool):
         "required": ["file_path", "old_string", "new_string"],
     }
 
+    def __init__(self, workspace_root: str | Path | None = None):
+        self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
+
+    def _resolve_path(self, path: str) -> Path:
+        p = Path(path).expanduser()
+        if p.is_absolute():
+            return p.resolve()
+        return (self.workspace_root / p).resolve()
+
     def execute(self, file_path: str, old_string: str, new_string: str) -> str:
         try:
-            p = Path(file_path).expanduser().resolve()
+            p = self._resolve_path(file_path)
             if not p.exists():
                 return f"Error: {file_path} not found"
 

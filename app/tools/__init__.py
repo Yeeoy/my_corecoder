@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.events import EventBus
 from app.skills import SkillManager
 from app.todo import TodoManager
@@ -13,14 +15,19 @@ from app.tools.todo import TodoTool
 from app.tools.write import WriteFileTool
 
 
-def create_tools(skills: SkillManager, todo_manager: TodoManager, events: EventBus) -> list:
+def create_tools(
+    skills: SkillManager,
+    todo_manager: TodoManager,
+    events: EventBus,
+    workspace_root: str | Path | None = None,
+) -> list:
     return [
-        BashTool(),
-        ReadFileTool(),
-        WriteFileTool(),
-        EditFileTool(),
-        GlobTool(),
-        GrepTool(),
+        BashTool(workspace_root=workspace_root),
+        ReadFileTool(workspace_root=workspace_root),
+        WriteFileTool(workspace_root=workspace_root),
+        EditFileTool(workspace_root=workspace_root),
+        GlobTool(workspace_root=workspace_root),
+        GrepTool(workspace_root=workspace_root),
         AgentTool(),
         NowTool(),
         SkillTool(skills),

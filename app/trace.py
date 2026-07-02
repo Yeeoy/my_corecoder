@@ -124,8 +124,13 @@ class TraceCollector:
             return f"   messages: {payload.get('message_count')}"
 
         if event == EventName.AFTER_CONTEXT_COMPRESS:
+            layers = payload.get("layers") or []
+            layers_text = ", ".join(layers) if layers else "none"
+
             return (
                 f"   compressed: {payload.get('compressed')}\n"
+                f"   layers: {layers_text}\n"
+                f"   tokens: {payload.get('before_tokens')} -> {payload.get('after_tokens')}\n"
                 f"   messages: {payload.get('before_message_count')} -> {payload.get('after_message_count')}"
             )
 

@@ -27,9 +27,18 @@ class WriteFileTool(Tool):
         "required": ["file_path", "content"],
     }
 
+    def __init__(self, workspace_root: str | Path | None = None):
+        self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
+
+    def _resolve_path(self, path: str) -> Path:
+        p = Path(path).expanduser()
+        if p.is_absolute():
+            return p.resolve()
+        return (self.workspace_root / p).resolve()
+
     def execute(self, file_path: str, content: str) -> str:
         try:
-            p = Path(file_path).expanduser().resolve()
+            p = self._resolve_path(file_path)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(content, encoding="utf-8")
             _changed_files.add(str(p))

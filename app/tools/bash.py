@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 import threading
+from pathlib import Path
 
 from app.tools.base import Tool
 
@@ -45,13 +46,16 @@ class BashTool(Tool):
         "required": ["command"],
     }
 
+    def __init__(self, workspace_root: str | Path | None = None):
+        self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
+
     def execute(self, command: str, timeout: int = 120) -> str:
         # safety check
         warning = _check_dangerous(command)
         if warning:
             return f"⚠ Blocked: {warning}\nCommand: {command}\nIf intentional, modify the command to be more specific."
 
-        cwd = getattr(_local, "cwd", None) or os.getcwd()
+        cwd = getattr(_local, "cwd", None) or str(self.workspace_root)
 
         try:
             proc = subprocess.run(

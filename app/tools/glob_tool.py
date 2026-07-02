@@ -21,9 +21,23 @@ class GlobTool(Tool):
         "required": ["pattern"],
     }
 
+    def __init__(self, workspace_root: str | Path | None = None):
+        self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
+
+    def _resolve_path(self, path: str | None) -> Path:
+        if not path:
+            return self.workspace_root
+
+        p = Path(path).expanduser()
+
+        if p.is_absolute():
+            return p.resolve()
+
+        return (self.workspace_root / p).resolve()
+
     def execute(self, pattern: str, path: str = ".") -> str:
         try:
-            base = Path(path).expanduser().resolve()
+            base = self._resolve_path(path)
             if not base.is_dir():
                 return f"Error: {path} is not a directory"
 

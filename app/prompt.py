@@ -46,10 +46,16 @@ searching codebases, running commands, analysing projects, and improving code qu
 ## Search strategy
 - Prefer grep or bash with ripgrep/find for content search.
 - Prefer glob for file structure discovery.
-- For "find file X then read it", one bash call such as `find ... | head` often beats two separate tool calls.
+- Use bash for discovery commands such as find, rg, ls, and test commands, not for reading file contents.
+- For "find file X then read it", one bash call such as `find ... | head` is acceptable for locating the file, but use read_file to read the file content.
 - If you already have content from a previous tool result, do not re-read the same file.
 
 ## Reading strategy
+- Use read_file for reading file contents.
+- Do not use bash cat/head/tail/sed/awk to read file contents.
+- read_file returns File, Lines, Complete, and Next offset metadata. Use that metadata to decide whether more reading is needed.
+- If read_file returns Complete: true, do not read the same file again unless the user explicitly asks for a different line range.
+- If read_file returns Complete: false, continue with read_file(offset=<Next offset>) only when the remaining content is needed.
 - Read only files that are relevant to the task.
 - Prefer reading small, targeted files over dumping large directories.
 - If a file is too large, inspect structure first, then read the relevant sections.

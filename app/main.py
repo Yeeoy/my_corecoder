@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 
 from rich.console import Console
 
@@ -10,11 +11,14 @@ from app.events import EventBus, EventName
 from app.llm import LLM
 from app.permission import PermissionManager
 from app.runlog import RunLogger
+from app.runtime_state import RuntimeStateRenderer
 from app.skills import SkillManager
 from app.todo import TodoManager
 from app.todo_printer import TodoPrinter
 from app.tools import create_tools
 from app.trace import TraceCollector
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # 状态追踪
 _is_first_token = True
@@ -30,7 +34,7 @@ runlog = RunLogger()
 skills = SkillManager()
 skills.load_all_skills()
 todo_manager = TodoManager()
-permission_manager = PermissionManager()
+permission_manager = PermissionManager(workspace_root=PROJECT_ROOT)
 todo_printer = TodoPrinter(console)
 
 events.on("*", trace.handle)
@@ -38,7 +42,18 @@ events.on("*", debug.handle)
 events.on("*", runlog.handle)
 events.on(EventName.TODO_UPDATED, todo_printer.handle)
 
-tools = create_tools(skills, todo_manager, events)
+tools = create_tools(
+    skills=skills,
+    todo_manager=todo_manager,
+    events=events,
+    workspace_root=PROJECT_ROOT,
+)
+
+runtime_state = RuntimeStateRenderer(
+    skills=skills,
+    permission_manager=permission_manager,
+    todo_manager=todo_manager,
+)
 
 
 def on_reasoning(reasoning):
@@ -49,8 +64,8 @@ def on_reasoning(reasoning):
     print(f"\033[2m{reasoning}\033[0m", end="", flush=True)
 
 
-def _brief(kwargs: dict, maxlength: int = 80) -> str:
-    s = ", ".join(f"{k}={repr(v)[:80]}" for k, v in kwargs.items())
+def _brief(kwargs: dict, maxlength: int = 200) -> str:
+    s = ", ".join(f"{k}={repr(v)[:120]}" for k, v in kwargs.items())
     return s[:maxlength] + ("..." if len(s) > maxlength else "")
 
 
@@ -80,11 +95,11 @@ def main():
     agent = Agent(
         llm=llm,
         tools=tools,
-        max_content_tokens=128_000,
         max_rounds=50,
         events=events,
         extra_system_context=skills.render_active_skills,
         permission_manager=permission_manager,
+        runtime_state=runtime_state,
     )
 
     command_router = CommandRouter(
