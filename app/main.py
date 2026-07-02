@@ -6,12 +6,13 @@ from app.agent import Agent
 from app.commands import CommandRouter
 from app.config import config
 from app.debug import DebugPrinter
-from app.events import EventBus
+from app.events import EventBus, EventName
 from app.llm import LLM
 from app.permission import PermissionManager
 from app.runlog import RunLogger
 from app.skills import SkillManager
 from app.todo import TodoManager
+from app.todo_printer import TodoPrinter
 from app.tools import create_tools
 from app.trace import TraceCollector
 
@@ -29,12 +30,15 @@ runlog = RunLogger()
 skills = SkillManager()
 skills.load_all_skills()
 todo_manager = TodoManager()
-tools = create_tools(skills, todo_manager)
 permission_manager = PermissionManager()
+todo_printer = TodoPrinter(console)
 
 events.on("*", trace.handle)
 events.on("*", debug.handle)
 events.on("*", runlog.handle)
+events.on(EventName.TODO_UPDATED, todo_printer.handle)
+
+tools = create_tools(skills, todo_manager, events)
 
 
 def on_reasoning(reasoning):
@@ -83,7 +87,9 @@ def main():
         permission_manager=permission_manager,
     )
 
-    command_router = CommandRouter(console, events, trace, debug, runlog, skills, permission_manager)
+    command_router = CommandRouter(
+        agent, console, events, trace, debug, runlog, skills, permission_manager, todo_manager
+    )
 
     while True:
         raw_input = input("\n\033[32mUser:\033[0m ")

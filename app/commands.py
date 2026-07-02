@@ -1,5 +1,6 @@
 class CommandRouter:
-    def __init__(self, console, events, trace, debug, runlog, skills, permission_manager):
+    def __init__(self, agent, console, events, trace, debug, runlog, skills, permission_manager, todo_manager):
+        self.agent = agent
         self.console = console
         self.events = events
         self.trace = trace
@@ -7,6 +8,7 @@ class CommandRouter:
         self.runlog = runlog
         self.skills = skills
         self.permission_manager = permission_manager
+        self.todo_manager = todo_manager
 
     def handle(self, user_input: str) -> bool:
 
@@ -123,6 +125,33 @@ class CommandRouter:
             self.console.print(self.permission_manager.set_mode(mode))
             return True
 
+        if user_input == "/todo":
+            text = self.todo_manager.render_todo()
+            self.console.print(text.replace("[", "\\["))
+            return True
+
+        if user_input == "/todo clear":
+            self.console.print(f"{self.todo_manager.clear_todo()}")
+            return True
+
+        if user_input == "/reset":
+            self.agent.reset()
+            self.trace.clear()
+            self.todo_manager.clear_todo()
+            self.permission_manager.clear_allowed_read_dirs()
+            self.console.print("[green]Session reset.[/green]")
+            self.console.print("Cleared: conversation messages, trace, todo, read directory grants.")
+            self.console.print("Kept: active skills, permission mode, run logs.")
+            return True
+
+        if user_input == "/permission reads":
+            self.console.print(self.permission_manager.render_allowed_read_dirs(), markup=False)
+            return True
+
+        if user_input == "/permission reads clear":
+            self.console.print(self.permission_manager.clear_allowed_read_dirs())
+            return True
+
         if user_input in {"/", "/help"}:
             self.print_usage()
             return True
@@ -160,4 +189,9 @@ class CommandRouter:
         self.console.print("  /permission mode default: dangerous bash requires confirmation")
         self.console.print("  /permission mode strict: dangerous bash is denied")
         self.console.print("  /permission mode yolo: allow all tool calls")
+        self.console.print("  /todo: show todo list")
+        self.console.print("  /todo clear: clear todo list")
+        self.console.print("  /reset: clear conversation messages, trace, and todo")
+        self.console.print("  /permission reads: show session read directory grants")
+        self.console.print("  /permission reads clear: clear session read directory grants")
         self.console.print("  /help or /: show usage")

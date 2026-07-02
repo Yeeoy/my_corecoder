@@ -1,3 +1,4 @@
+from app.events import EventName
 from app.todo import TodoManager, TodoStatus
 from app.tools.base import Tool
 
@@ -53,8 +54,9 @@ class TodoTool(Tool):
         "required": ["action"],
     }
 
-    def __init__(self, todo_manager: TodoManager):
+    def __init__(self, todo_manager: TodoManager, events):
         self.todo_manager = todo_manager
+        self.events = events
 
     def execute(
         self,
@@ -68,42 +70,45 @@ class TodoTool(Tool):
             if action == "plan":
                 if not items:
                     return "Error: action='plan' requires items."
-                return self.todo_manager.plan(items)
-
-            if action == "add":
+                result = self.todo_manager.plan(items)
+            elif action == "add":
                 if not content:
                     return "Error: action='add' requires content."
-                return self.todo_manager.add_todo(content)
-
-            if action == "start":
+                result = self.todo_manager.add_todo(content)
+            elif action == "start":
                 if id is None:
                     return "Error: action='start' requires id."
-                return self.todo_manager.update_todo(id, TodoStatus.IN_PROGRESS)
-
-            if action == "done":
+                result = self.todo_manager.update_todo(id, TodoStatus.IN_PROGRESS)
+            elif action == "done":
                 if id is None:
                     return "Error: action='done' requires id."
-                return self.todo_manager.update_todo(id, TodoStatus.COMPLETED)
-
-            if action == "update":
+                result = self.todo_manager.update_todo(id, TodoStatus.COMPLETED)
+            elif action == "update":
                 if id is None:
                     return "Error: action='update' requires id."
                 if not status:
                     return "Error: action='update' requires status."
-                return self.todo_manager.update_todo(id, status)
-
-            if action == "delete":
+                result = self.todo_manager.update_todo(id, status)
+            elif action == "delete":
                 if id is None:
                     return "Error: action='delete' requires id."
-                return self.todo_manager.delete_todo(id)
+                result = self.todo_manager.delete_todo(id)
+            elif action == "list":
+                result = self.todo_manager.render_todo()
+            elif action == "clear":
+                result = self.todo_manager.clear_todo()
+            else:
+                return f"Unknown todo action: {action}"
 
-            if action == "list":
-                return self.todo_manager.render_todo()
+            self.events.emit(
+                EventName.TODO_UPDATED,
+                {
+                    "action": action,
+                    "todo": self.todo_manager.render_todo(),
+                },
+            )
 
-            if action == "clear":
-                return self.todo_manager.clear_todo()
-
-            return f"Unknown todo action: {action}"
+            return result
 
         except Exception as e:
             return f"Error: {e}"

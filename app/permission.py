@@ -133,6 +133,7 @@ class PermissionManager:
     def __init__(self, workspace_root: str | Path | None = None):
         self.mode = "default"
         self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
+        self.allowed_read_dirs: set[Path] = set()
 
     # ── public API ──────────────────────────────────────────────────
 
@@ -211,6 +212,9 @@ class PermissionManager:
         if self._is_high_risk_read_path(target):
             return PermissionDecision("deny", f"high-risk sensitive file read blocked: {target}")
 
+        if self._is_read_dir_allowed(target):
+            return PermissionDecision("allow", f"session read directory allowed: {target}")
+
         if not target.is_relative_to(self.workspace_root):
             return PermissionDecision("confirm", f"read outside workspace: {target}")
 
@@ -266,3 +270,31 @@ class PermissionManager:
         if ".ssh" in path.parts and path.name.startswith("id_"):
             return True
         return bool(".ssh" in path.parts and path.name in {"known_hosts", "authorized_keys"})
+
+    def allow_read_dir_for_session(self, file_path: str) -> str:
+        try:
+            target = Path(file_path).expanduser().resolve()
+        except Exception:
+            return f"Invalid file path: {file_path}"
+
+        directory = target if target.is_dir() else target.parent
+        self.allowed_read_dirs.add(directory)
+
+        return f"Allowed read access for this session: {directory}"
+
+    def render_allowed_read_dirs(self) -> str:
+        if not self.allowed_read_dirs:
+            return "No session read directories allowed."
+
+        lines = ["Session read directories:"]
+        for directory in sorted(self.allowed_read_dirs):
+            lines.append(f"- {directory}")
+
+        return "\n".join(lines)
+
+    def clear_allowed_read_dirs(self) -> str:
+        self.allowed_read_dirs.clear()
+        return "Cleared session read directory grants."
+
+    def _is_read_dir_allowed(self, target: Path) -> bool:
+        return any(target.is_relative_to(directory) for directory in self.allowed_read_dirs)

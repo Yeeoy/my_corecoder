@@ -25,6 +25,8 @@ class EventName:
     PERMISSION_CONFIRMED = "permission_confirmed"
     PERMISSION_DENIED = "permission_denied"
 
+    TODO_UPDATED = "todo_updated"
+
 
 class EventBus:
     def __init__(self):

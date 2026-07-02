@@ -1,3 +1,4 @@
+from app.events import EventBus
 from app.skills import SkillManager
 from app.todo import TodoManager
 from app.tools.agent import AgentTool
@@ -12,7 +13,7 @@ from app.tools.todo import TodoTool
 from app.tools.write import WriteFileTool
 
 
-def create_tools(skills: SkillManager, todo_manager: TodoManager) -> list:
+def create_tools(skills: SkillManager, todo_manager: TodoManager, events: EventBus) -> list:
     return [
         BashTool(),
         ReadFileTool(),
@@ -25,5 +26,5 @@ def create_tools(skills: SkillManager, todo_manager: TodoManager) -> list:
         SkillTool(skills),
         ListSkillFilesTool(skills),
         ReadSkillFileTool(skills),
-        TodoTool(todo_manager),
+        TodoTool(todo_manager, events),
     ]

@@ -212,7 +212,10 @@ class Agent:
             print(f"Tool: {tool_name}")
             print(f"Reason: {decision.reason}")
             print(f"Arguments: {arguments}")
-            answer = input("Allow this tool call? [y/N]: ").strip().lower()
+            if tool_name == "read_file":
+                answer = input("Allow this tool call? [y/N/a=allow this directory for session]: ").strip().lower()
+            else:
+                answer = input("Allow this tool call? [y/N]: ").strip().lower()
 
             if answer == "y":
                 self.events.emit(
@@ -223,6 +226,34 @@ class Agent:
                         "arguments_preview": str(arguments)[:300],
                     },
                 )
+                return None
+
+            if answer == "a" and tool_name == "read_file":
+                file_path = arguments.get("file_path") or arguments.get("path")
+
+                if not file_path:
+                    message = "Permission denied: cannot determine read_file path for directory authorization"
+                    self.events.emit(
+                        EventName.PERMISSION_DENIED,
+                        {
+                            "tool": tool_name,
+                            "reason": message,
+                            "arguments_preview": str(arguments)[:300],
+                        },
+                    )
+                    return message
+
+                grant_message = self.permission_manager.allow_read_dir_for_session(file_path)
+
+                self.events.emit(
+                    EventName.PERMISSION_CONFIRMED,
+                    {
+                        "tool": tool_name,
+                        "reason": grant_message,
+                        "arguments_preview": str(arguments)[:300],
+                    },
+                )
+
                 return None
 
             message = (
@@ -319,12 +350,26 @@ class Agent:
             return f"Error executing {tc.name}: {e}"
 
     def _exec_tools_parallel(self, tool_calls, on_tool=None) -> list[str]:
+        # Run tools sequentially if any tool requires permission
+        if self._should_run_tools_sequentially(tool_calls):
+            return [self._exec_tool(tc) for tc in tool_calls]
         for tc in tool_calls:
             if on_tool:
                 on_tool(tc.name, tc.arguments)
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
             futures = [pool.submit(self._exec_tool, tc) for tc in tool_calls]
             return [f.result() for f in futures]
+
+    def _should_run_tools_sequentially(self, tool_calls) -> bool:
+        for tc in tool_calls:
+            if tc.name == "todo":
+                return True
+
+            decision = self.permission_manager.check_tool_call(tc.name, tc.arguments)
+            if decision.action != "allow":
+                return True
+
+        return False
 
     def _answer_pending_tool_calls(self, tool_calls):
         answered = {m.get("tool_call_id") for m in self.messages if m.get("role") == "tool"}
