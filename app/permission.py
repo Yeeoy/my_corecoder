@@ -134,12 +134,27 @@ class PermissionManager:
         self.mode = "default"
         self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
         self.allowed_read_dirs: set[Path] = set()
+        self.mcp_allow_tools: set[str] = set()
+        self.mcp_confirm_tools: set[str] = set()
+        self.mcp_deny_tools: set[str] = set()
 
     # ── public API ──────────────────────────────────────────────────
 
     def check_tool_call(self, tool_name: str, arguments: dict) -> PermissionDecision:
         if self.mode == "yolo":
             return PermissionDecision("allow", "permission mode yolo")
+
+        if tool_name.startswith("mcp__"):
+            if tool_name in self.mcp_deny_tools:
+                return PermissionDecision("deny", f"MCP tool denied by policy: {tool_name}")
+
+            if tool_name in self.mcp_allow_tools:
+                return PermissionDecision("allow", f"MCP tool allowed by policy: {tool_name}")
+
+            if tool_name in self.mcp_confirm_tools:
+                return PermissionDecision("confirm", f"MCP tool requires confirmation by policy: {tool_name}")
+
+            return PermissionDecision("confirm", "MCP tool call requires confirmation")
 
         dispatch = {
             "bash": self._check_bash,
@@ -301,3 +316,13 @@ class PermissionManager:
 
     def _is_read_dir_allowed(self, target: Path) -> bool:
         return any(target.is_relative_to(directory) for directory in self.allowed_read_dirs)
+
+    def set_mcp_policy(
+        self,
+        allow: set[str] | None = None,
+        confirm: set[str] | None = None,
+        deny: set[str] | None = None,
+    ) -> None:
+        self.mcp_allow_tools = allow or set()
+        self.mcp_confirm_tools = confirm or set()
+        self.mcp_deny_tools = deny or set()

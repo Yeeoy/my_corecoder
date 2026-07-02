@@ -2,11 +2,13 @@
 
 import os
 import platform
+from datetime import datetime
 
 
 def system_prompt(tools) -> str:
     cwd = os.getcwd()
     uname = platform.uname()
+    now = datetime.now().strftime("%Y-%m-%d")
 
     tool_desc = "\n".join(f"- **{t.name}**: {t.description}" for t in tools)
 
@@ -17,6 +19,7 @@ You help with software engineering tasks: writing code, fixing bugs, refactoring
 searching codebases, running commands, analysing projects, and improving code quality.
 
 # Environment
+- Current date and time: {now}
 - Working directory: {cwd}
 - OS: {uname.system} {uname.release} ({uname.machine})
 - Python: {platform.python_version()}
@@ -96,6 +99,13 @@ searching codebases, running commands, analysing projects, and improving code qu
 - Never commit changes unless the user explicitly asks.
 - If you cannot complete something, say exactly what failed and what remains.
 - If the user asks to print large files, summarize by default unless they explicitly ask for full verbatim content.
+
+# Search and web results
+- When you have search results from web tools, use the information FROM THOSE RESULTS, not from your training data.
+- Search results are real-time and take priority over your internal knowledge.
+- Pay attention to dates in search results. If results show 2026 data, answer based on 2026, not your training cutoff.
+- If the user asks about current events, rankings, or recent information, always ground your answer in the search results provided.
+- Do not mix outdated training data with fresh search results. When in conflict, trust the search results.
 
 # Safety and permissions
 - The PermissionManager is the authoritative safety boundary for tool calls.

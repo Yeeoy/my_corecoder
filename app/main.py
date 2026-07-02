@@ -1,3 +1,4 @@
+import atexit
 import sys
 from pathlib import Path
 
@@ -9,6 +10,8 @@ from app.config import config
 from app.debug import DebugPrinter
 from app.events import EventBus, EventName
 from app.llm import LLM
+from app.mcp_client import MCPClientManager
+from app.mcp_config import load_mcp_config, load_mcp_permission_policy
 from app.permission import PermissionManager
 from app.runlog import RunLogger
 from app.runtime_state import RuntimeStateRenderer
@@ -42,11 +45,27 @@ events.on("*", debug.handle)
 events.on("*", runlog.handle)
 events.on(EventName.TODO_UPDATED, todo_printer.handle)
 
+
+mcp_configs = load_mcp_config(PROJECT_ROOT / ".mcp.json")
+mcp_manager = MCPClientManager(mcp_configs, workspace_root=PROJECT_ROOT)
+atexit.register(mcp_manager.close_sync)
+mcp_tools = mcp_manager.start_sync()
+
 tools = create_tools(
     skills=skills,
     todo_manager=todo_manager,
     events=events,
     workspace_root=PROJECT_ROOT,
+)
+tools.extend(mcp_tools)
+
+console.print(f"[cyan]Loaded MCP tools: {len(mcp_tools)}[/cyan]")
+
+mcp_policy = load_mcp_permission_policy(PROJECT_ROOT / ".mcp.json")
+permission_manager.set_mcp_policy(
+    allow=mcp_policy.allow,
+    confirm=mcp_policy.confirm,
+    deny=mcp_policy.deny,
 )
 
 runtime_state = RuntimeStateRenderer(
