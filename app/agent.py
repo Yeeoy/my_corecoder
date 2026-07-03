@@ -35,6 +35,7 @@ class Agent:
         self.extra_system_context = extra_system_context
         self.permission_manager = permission_manager or PermissionManager()
         self.runtime_state = runtime_state
+        self._permission_handler = None
 
         # sub agent
         for t in self.tools:
@@ -84,7 +85,8 @@ class Agent:
             },
         )
 
-    def chat(self, user_input: str, on_token=None, on_tool=None, on_reasoning=None) -> str:
+    def chat(self, user_input: str, on_token=None, on_tool=None, on_reasoning=None, permission_handler=None) -> str:
+        self._permission_handler = permission_handler
         self.messages.append({"role": "user", "content": user_input})
         self.events.emit(
             EventName.USER_MESSAGE,
@@ -221,16 +223,21 @@ class Agent:
             return message
 
         if decision.action == "confirm":
-            print("\n⚠️ Permission required")
-            print(f"Tool: {tool_name}")
-            print(f"Reason: {decision.reason}")
-            print(f"Arguments: {arguments}")
-            if tool_name == "read_file":
-                answer = input("Allow this tool call? [y/N/a=allow this directory for session]: ").strip().lower()
-            else:
-                answer = input("Allow this tool call? [y/N]: ").strip().lower()
+            allow_dir = tool_name == "read_file"
 
-            if answer == "y":
+            if self._permission_handler:
+                answer = self._permission_handler(tool_name, decision.reason, arguments, allow_dir)
+            else:
+                print("\n⚠️ Permission required")
+                print(f"Tool: {tool_name}")
+                print(f"Reason: {decision.reason}")
+                print(f"Arguments: {arguments}")
+                if allow_dir:
+                    answer = input("Allow this tool call? [y/N/a=allow this directory for session]: ").strip().lower()
+                else:
+                    answer = input("Allow this tool call? [y/N]: ").strip().lower()
+
+            if answer == "allow":
                 self.events.emit(
                     EventName.PERMISSION_CONFIRMED,
                     {
@@ -241,7 +248,7 @@ class Agent:
                 )
                 return None
 
-            if answer == "a" and tool_name == "read_file":
+            if answer == "allow_dir" and allow_dir:
                 file_path = arguments.get("file_path") or arguments.get("path")
 
                 if not file_path:

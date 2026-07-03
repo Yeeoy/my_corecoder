@@ -10,3 +10,7 @@ __pycache__/
 # IDE
 .idea/
 
+# frontend
+build/
+dist/
+node_modules/
