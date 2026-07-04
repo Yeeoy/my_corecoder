@@ -1,4 +1,4 @@
-"""Sub-agent spawning (inspired by Claude Code's AgentTool, 1397 lines).
+"""Sub-agent spawning (inspired by Claude Code's AgentTool).
 
 The idea: for complex sub-tasks, spawn an independent agent with its own
 conversation history and tool access. This lets the main agent delegate
@@ -8,10 +8,19 @@ its own context window.
 The sub-agent runs to completion and returns a text summary.
 """
 
-from .base import Tool
+import time
+
+from .base import Tool, ToolResult
 
 
 class AgentTool(Tool):
+    """Spawn an isolated sub-agent for a complex sub-task.
+
+    The sub-agent gets its own context window and a copy of the parent's
+    tools (minus this agent tool to prevent recursion).  Output is
+    truncated at 5000 characters to avoid flooding the parent context.
+    """
+
     name = "agent"
     description = (
         "Spawn a sub-agent to handle a complex sub-task independently. "
@@ -33,9 +42,30 @@ class AgentTool(Tool):
     # set by Agent.__init__ after construction
     _parent_agent = None
 
-    def execute(self, task: str) -> str:
+    def execute(self, task: str) -> ToolResult:
+        """Spawn a sub-agent, run it to completion, and return its summary.
+
+        Returns:
+            ToolResult with:
+            - ``ok``: False when the parent agent is not set or the
+              sub-agent raised an exception.
+            - ``content``: Sub-agent output, prefixed with
+              ``"[Sub-agent completed]"``.
+            - ``metadata``: tool, task, truncated, duration_ms.
+        """
+        start = time.perf_counter()
+
         if self._parent_agent is None:
-            return "Error: agent tool not initialized (no parent agent)"
+            return ToolResult(
+                ok=False,
+                content="",
+                error="Agent tool not initialized (no parent agent)",
+                metadata={
+                    "tool": self.name,
+                    "task": task,
+                    "duration_ms": int((time.perf_counter() - start) * 1000),
+                },
+            )
 
         # import here to avoid circular dep
         from ..agent import Agent
@@ -50,9 +80,32 @@ class AgentTool(Tool):
 
         try:
             result = sub.chat(task)
+            duration_ms = int((time.perf_counter() - start) * 1000)
+
             # trim long results to avoid blowing up parent's context
-            if len(result) > 5000:
+            truncated = len(result) > 5000
+            if truncated:
                 result = result[:4500] + "\n... (sub-agent output truncated)"
-            return f"[Sub-agent completed]\n{result}"
+
+            return ToolResult(
+                ok=True,
+                content=f"[Sub-agent completed]\n{result}",
+                error=None,
+                metadata={
+                    "tool": self.name,
+                    "task": task,
+                    "truncated": truncated,
+                    "duration_ms": duration_ms,
+                },
+            )
         except Exception as e:
-            return f"Sub-agent error: {e}"
+            return ToolResult(
+                ok=False,
+                content="",
+                error=f"Sub-agent error: {type(e).__name__}: {e}",
+                metadata={
+                    "tool": self.name,
+                    "task": task,
+                    "duration_ms": int((time.perf_counter() - start) * 1000),
+                },
+            )
