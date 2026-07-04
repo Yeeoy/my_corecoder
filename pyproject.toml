@@ -1,7 +1,7 @@
 [project]
 name = "my-corecoder"
 version = "0.1.0"
-description = "Add your description here"
+description = "从零构建的安全优先 AI 编程助手 — 支持终端/Web 双模式，事件驱动架构，集成 MCP 协议"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
