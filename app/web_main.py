@@ -92,6 +92,10 @@ def build_agent_runtime():
             mcp_manager = MCPClientManager(mcp_configs, workspace_root=PROJECT_ROOT)
             mcp_tools = mcp_manager.start_sync()
             tools.extend(mcp_tools)
+            # Agent._tool_by_name was built in __init__ before MCP loaded;
+            # update it so _exec_tool can find MCP tools at runtime.
+            for t in mcp_tools:
+                agent.tool_by_name[t.name] = t
             atexit.register(mcp_manager.close_sync)
             console.print(f"[green]Loaded MCP tools: {len(mcp_tools)}[/green]")
         except Exception as e:

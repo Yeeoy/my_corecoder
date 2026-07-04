@@ -437,3 +437,7 @@ class Agent:
 
     def reset(self):
         self.messages.clear()
+
+    @property
+    def tool_by_name(self):
+        return self._tool_by_name
