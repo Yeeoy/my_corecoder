@@ -8,7 +8,7 @@ from app.llm import LLM
 from app.permission import PermissionManager
 from app.prompt import system_prompt
 from app.tools import AgentTool
-from app.tools.base import Tool
+from app.tools.base import Tool, ToolResult
 
 
 class Agent:
@@ -152,7 +152,7 @@ class Agent:
                         {
                             "role": "tool",
                             "tool_call_id": tc.id,
-                            "content": result,
+                            "content": result.to_llm_content(),
                         }
                     )
                 else:
@@ -162,7 +162,7 @@ class Agent:
                             {
                                 "role": "tool",
                                 "tool_call_id": tc.id,
-                                "content": result,
+                                "content": result.to_llm_content(),
                             }
                         )
             except KeyboardInterrupt:
@@ -292,7 +292,7 @@ class Agent:
 
         return None
 
-    def _exec_tool(self, tc) -> str:
+    def _exec_tool(self, tc) -> ToolResult:
         started = time.perf_counter()
         self.events.emit(
             EventName.BEFORE_TOOL_CALL,
@@ -313,7 +313,12 @@ class Agent:
                     "error_type": "UnknownToolError",
                 },
             )
-            return f"Error: unknown tool '{tc.name}'"
+            return ToolResult(
+                ok=False,
+                content="",
+                error=f"Error: unknown tool '{tc.name}'",
+                metadata={},
+            )
 
         try:
             inspect.signature(tool.execute).bind(**tc.arguments)
@@ -327,7 +332,12 @@ class Agent:
                     "error_type": type(e).__name__,
                 },
             )
-            return f"Error: bad arguments for {tc.name}: {e}"
+            return ToolResult(
+                ok=False,
+                content="",
+                error=f"Bad arguments for {tc.name}: {e}",
+                metadata={},
+            )
 
         permission_error = self._check_permission(tc.name, tc.arguments)
         if permission_error:
@@ -342,7 +352,12 @@ class Agent:
                     "success": False,
                 },
             )
-            return permission_error
+            return ToolResult(
+                ok=False,
+                content="",
+                error=f"Permission denied: {permission_error}",
+                metadata={},
+            )
 
         try:
             result = tool.execute(**tc.arguments)
@@ -351,9 +366,11 @@ class Agent:
                 {
                     "tool_call_id": tc.id,
                     "name": tc.name,
-                    "duration_ms": int((time.perf_counter() - started) * 1000),
-                    "result_chars": len(result),
-                    "result_preview": result[:1000],
+                    "ok": result.ok,
+                    "error": result.error,
+                    "duration_ms": result.metadata.get("duration_ms", int((time.perf_counter() - started) * 1000)),
+                    "result_chars": len(result.content),
+                    "result_preview": result.content[:1000],
                 },
             )
             return result
@@ -367,9 +384,14 @@ class Agent:
                     "error_type": type(e).__name__,
                 },
             )
-            return f"Error executing {tc.name}: {e}"
+            return ToolResult(
+                ok=False,
+                content="",
+                error=f"Error executing {tc.name}: {type(e).__name__}: {e}",
+                metadata={},
+            )
 
-    def _exec_tools_parallel(self, tool_calls, on_tool=None) -> list[str]:
+    def _exec_tools_parallel(self, tool_calls, on_tool=None) -> list[ToolResult]:
         # Run tools sequentially if any tool requires permission
         if self._should_run_tools_sequentially(tool_calls):
             results = []

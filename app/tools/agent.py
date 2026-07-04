@@ -74,7 +74,6 @@ class AgentTool(Tool):
         sub = Agent(
             llm=parent.llm,
             tools=[t for t in parent.tools if t.name != "agent"],  # no recursive agents
-            max_context_tokens=parent.context.max_tokens,
             max_rounds=20,
         )
 

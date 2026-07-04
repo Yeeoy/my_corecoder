@@ -87,11 +87,6 @@ class ContextManager:
 
             content = m.get("content", "")
 
-            # Do not snip read_file outputs.
-            # Code/file content is often the core evidence for the next reasoning step.
-            if content.startswith("File: ") and "\nComplete: " in content[:300]:
-                continue
-
             if len(content) <= 1500:
                 continue
 

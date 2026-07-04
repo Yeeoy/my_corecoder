@@ -25,7 +25,7 @@ class Tool(ABC):
     parameters: dict
 
     @abstractmethod
-    def execute(self, **kwargs) -> str | ToolResult: ...
+    def execute(self, **kwargs) -> ToolResult: ...
 
     def schema(self) -> dict:
         return {
