@@ -1,15 +1,26 @@
 import fnmatch
 import os
 import re
+import time
 from pathlib import Path
 
-from app.tools.base import Tool
+from app.tools.base import Tool, ToolResult
 
 # skip these dirs to avoid noise
 _SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".tox", "dist", "build"}
 
+MAX_MATCHES = 200
+MAX_RESULTS = 5000
+
 
 class GrepTool(Tool):
+    """Search file contents with a regex pattern.
+
+    Walks the workspace (or a specific path), skipping binary files and
+    noise directories.  Results are capped at *MAX_MATCHES* to avoid
+    flooding the LLM context.
+    """
+
     name = "grep"
     description = "Search file contents with regex. Returns matching lines with file path and line number."
     parameters = {
@@ -42,21 +53,48 @@ class GrepTool(Tool):
             return p.resolve()
         return (self.workspace_root / p).resolve()
 
-    def execute(self, pattern: str, path: str = ".", include: str | None = None) -> str:
+    def execute(self, pattern: str, path: str = ".", include: str | None = None) -> ToolResult:
+        """Search for *pattern* in *path*, optionally filtered by *include* glob.
+
+        Returns:
+            ToolResult with:
+            - ``ok``: False only for invalid regex or missing path.
+            - ``content``: Matching lines in ``file:lineno: text`` format,
+              or ``"No matches found."``.
+            - ``metadata``: tool, path, match_count, truncated, duration_ms.
+        """
+        start = time.perf_counter()
         try:
             regex = re.compile(pattern)
         except re.error as e:
-            return f"Invalid regex: {e}"
+            return ToolResult(
+                ok=False,
+                content="",
+                error=f"Invalid regex pattern: {type(e).__name__}: {e}",
+                metadata={
+                    "tool": self.name,
+                    "path": path,
+                    "duration_ms": int((time.perf_counter() - start) * 1000),
+                },
+            )
 
         base = self._resolve_path(path)
         if not base.exists():
-            return f"Error: {path} not found"
+            return ToolResult(
+                ok=False,
+                content="",
+                error=f"Error: {path} not found",
+                metadata={
+                    "tool": self.name,
+                    "path": path,
+                    "duration_ms": int((time.perf_counter() - start) * 1000),
+                },
+            )
 
         files = [base] if base.is_file() else self._walk(base, include)
 
         matches = []
         for fp in files:
-            # read file as bytes, skip binary files
             try:
                 raw = fp.read_bytes()
             except OSError:
@@ -67,11 +105,31 @@ class GrepTool(Tool):
             for lineno, line in enumerate(text.splitlines(), 1):
                 if regex.search(line):
                     matches.append(f"{fp}:{lineno}: {line.rstrip()}")
-                    if len(matches) >= 200:
-                        matches.append("... (200 match limit reached)")
-                        return "\n".join(matches)
+                    if len(matches) >= MAX_MATCHES:
+                        matches.append(f"... ({MAX_MATCHES} match limit reached)")
+                        return ToolResult(
+                            ok=True,
+                            content="\n".join(matches),
+                            metadata={
+                                "tool": self.name,
+                                "path": path,
+                                "match_count": MAX_MATCHES,
+                                "truncated": True,
+                                "duration_ms": int((time.perf_counter() - start) * 1000),
+                            },
+                        )
 
-        return "\n".join(matches) if matches else "No matches found."
+        return ToolResult(
+            ok=True,
+            content="\n".join(matches) if matches else "No matches found.",
+            metadata={
+                "tool": self.name,
+                "path": path,
+                "match_count": len(matches),
+                "truncated": False,
+                "duration_ms": int((time.perf_counter() - start) * 1000),
+            },
+        )
 
     @staticmethod
     def _walk(root: Path, include: str | None) -> list[Path]:
@@ -93,6 +151,6 @@ class GrepTool(Tool):
                 if include and not fnmatch.fnmatch(fname, include):
                     continue
                 results.append(Path(dirpath) / fname)
-                if len(results) >= 5000:
+                if len(results) >= MAX_RESULTS:
                     return results
         return results
