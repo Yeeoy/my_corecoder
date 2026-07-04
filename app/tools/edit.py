@@ -7,15 +7,25 @@ and makes edits safe and reviewable.
 """
 
 import difflib
+import time
 from pathlib import Path
 
-from app.tools.base import Tool
+from app.tools.base import Tool, ToolResult
+
+MAX_RESULTS = 3000
 
 # track files changed this session for /diff
 _changed_files: set[str] = set()
 
 
 class EditFileTool(Tool):
+    """Edit a file by replacing an exact string match.
+
+    Uses the Claude-Code-style *old_string* / *new_string* approach:
+    *old_string* must appear exactly once in the file, which eliminates
+    ambiguity and makes every edit reviewable via its unified diff.
+    """
+
     name = "edit_file"
     description = (
         "Edit a file by replacing an exact string match. "
@@ -50,25 +60,73 @@ class EditFileTool(Tool):
             return p.resolve()
         return (self.workspace_root / p).resolve()
 
-    def execute(self, file_path: str, old_string: str, new_string: str) -> str:
+    def execute(self, file_path: str, old_string: str, new_string: str) -> ToolResult:
+        """Replace *old_string* with *new_string* in *file_path*.
+
+        *old_string* must appear exactly once in the file. When it doesn't,
+        the first 500 characters of the file are included in ``content`` so
+        the LLM can adjust its match.
+
+        Returns:
+            ToolResult with:
+            - ``ok``: True when the edit was applied and a unified diff is
+              returned.
+            - ``content``: Unified diff on success, file preview on match
+              failure.
+            - ``metadata``: tool, path, duration_ms.
+        """
+        start = time.perf_counter()
         try:
             p = self._resolve_path(file_path)
             if not p.exists():
-                return f"Error: {file_path} not found"
+                return ToolResult(
+                    ok=False,
+                    content="",
+                    error=f"File not found: {file_path}",
+                    metadata={
+                        "tool": self.name,
+                        "path": file_path,
+                        "duration_ms": int((time.perf_counter() - start) * 1000),
+                    },
+                )
 
             try:
                 content = p.read_text(encoding="utf-8")
             except UnicodeDecodeError:
-                return f"Error: {file_path} is not a UTF-8 text file (edit_file only edits text files)"
+                return ToolResult(
+                    ok=False,
+                    content="",
+                    error=f"File is not a UTF-8 text file (edit_file only edits text files): {file_path}",
+                    metadata={
+                        "tool": self.name,
+                        "path": file_path,
+                        "duration_ms": int((time.perf_counter() - start) * 1000),
+                    },
+                )
             occurrences = content.count(old_string)
-
+            preview = content[:500] + ("..." if len(content) > 500 else "")
             if occurrences == 0:
-                preview = content[:500] + ("..." if len(content) > 500 else "")
-                return f"Error: old_string not found in {file_path}.\nFile starts with:\n{preview}"
+                return ToolResult(
+                    ok=False,
+                    content=f"File starts with:\n{preview}",
+                    error=f"old_string not found in {file_path}",
+                    metadata={
+                        "tool": self.name,
+                        "path": file_path,
+                        "duration_ms": int((time.perf_counter() - start) * 1000),
+                    },
+                )
             if occurrences > 1:
-                return (
-                    f"Error: old_string appears {occurrences} times in {file_path}. "
-                    f"Include more surrounding lines to make it unique."
+                return ToolResult(
+                    ok=False,
+                    content=f"File starts with:\n{preview}",
+                    error=f"old_string appears {occurrences} times in {file_path}. "
+                    f"Include more surrounding lines to make it unique.",
+                    metadata={
+                        "tool": self.name,
+                        "path": file_path,
+                        "duration_ms": int((time.perf_counter() - start) * 1000),
+                    },
                 )
 
             new_content = content.replace(old_string, new_string, 1)
@@ -77,9 +135,26 @@ class EditFileTool(Tool):
 
             # generate a unified diff so the user/LLM can see exactly what changed
             diff = _unified_diff(content, new_content, str(p))
-            return f"Edited {file_path}\n{diff}"
+            return ToolResult(
+                ok=True,
+                content=f"Edited {file_path}\n{diff}",
+                metadata={
+                    "tool": self.name,
+                    "path": file_path,
+                    "duration_ms": int((time.perf_counter() - start) * 1000),
+                },
+            )
         except Exception as e:
-            return f"Error: {e}"
+            return ToolResult(
+                ok=False,
+                content="",
+                error=f"Error: {e}",
+                metadata={
+                    "tool": self.name,
+                    "path": file_path,
+                    "duration_ms": int((time.perf_counter() - start) * 1000),
+                },
+            )
 
 
 def _unified_diff(old: str, new: str, filename: str, context: int = 3) -> str:
@@ -95,6 +170,6 @@ def _unified_diff(old: str, new: str, filename: str, context: int = 3) -> str:
     )
     result = "".join(diff)
     # truncate enormous diffs
-    if len(result) > 3000:
-        result = result[:2500] + "\n... (diff truncated)\n"
+    if len(result) > MAX_RESULTS:
+        result = result[:MAX_RESULTS] + "\n... (diff truncated)\n"
     return result
