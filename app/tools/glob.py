@@ -12,6 +12,7 @@ class GlobTool(Tool):
     Results are sorted by modification time (newest first) and capped at
     *MAX_RESULTS* to avoid flooding the LLM context.
     """
+
     name = "glob"
     description = "Find files matching a glob pattern. Supports ** for recursive matching(e.g. '**/*.py')"
     parameters = {
