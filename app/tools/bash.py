@@ -88,7 +88,9 @@ class BashTool(Tool):
             return ToolResult(
                 ok=False,
                 content="",
-                error=f"Blocked: {warning}\nCommand: {command}\nIf intentional, modify the command to be more specific.",
+                error=(
+                    f"Blocked: {warning}\nCommand: {command}\nIf intentional, modify the command to be more specific."
+                ),
                 metadata={
                     "tool": self.name,
                     "command": command,
