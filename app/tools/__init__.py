@@ -6,11 +6,11 @@ from app.todo import TodoManager
 from app.tools.agent import AgentTool
 from app.tools.bash import BashTool
 from app.tools.edit import EditFileTool
-from app.tools.glob_tool import GlobTool
+from app.tools.glob import GlobTool
 from app.tools.grep import GrepTool
-from app.tools.now import NowTool
 from app.tools.read import ReadFileTool
 from app.tools.skill import ListSkillFilesTool, ReadSkillFileTool, SkillTool
+from app.tools.time import TimeTool
 from app.tools.todo import TodoTool
 from app.tools.write import WriteFileTool
 
@@ -29,7 +29,7 @@ def create_tools(
         GlobTool(workspace_root=workspace_root),
         GrepTool(workspace_root=workspace_root),
         AgentTool(),
-        NowTool(),
+        TimeTool(),
         SkillTool(skills),
         ListSkillFilesTool(skills),
         ReadSkillFileTool(skills),
