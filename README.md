@@ -1,3 +1,5 @@
+![CI](https://github.com/Yeeoy/my_corecoder/actions/workflows/ci.yml/badge.svg)
+
 # my-corecoder
 
 **从零构建的安全优先 AI 编程助手** — 支持终端（TUI）和 Web 两种交互模式，在终端中帮你写代码、搜代码、改 bug、跑命令的 AI Agent。
