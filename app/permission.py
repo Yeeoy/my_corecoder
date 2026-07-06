@@ -62,6 +62,11 @@ class PermissionManager:
         Path("/Library"),
     ]
 
+    HIGH_RISK_READ_FILES = [
+        Path("/etc/shadow"),
+        Path("/etc/sudoers"),
+    ]
+
     # ── bash rules ──────────────────────────────────────────────────
 
     DENY_RULES: list[tuple[re.Pattern, str]] = [
@@ -137,6 +142,9 @@ class PermissionManager:
         self.mcp_allow_tools: set[str] = set()
         self.mcp_confirm_tools: set[str] = set()
         self.mcp_deny_tools: set[str] = set()
+
+        self._resolved_system_roots = [r.resolve() for r in self.SYSTEM_ROOTS]
+        self._resolved_high_risk_files = [f.resolve() for f in self.HIGH_RISK_READ_FILES]
 
     # ── public API ──────────────────────────────────────────────────
 
@@ -264,9 +272,8 @@ class PermissionManager:
                 return value.strip()
         return None
 
-    @staticmethod
-    def _is_system_path(path: Path) -> bool:
-        return any(path.is_relative_to(root) for root in PermissionManager.SYSTEM_ROOTS)
+    def _is_system_path(self, path: Path) -> bool:
+        return any(path.is_relative_to(root) for root in self._resolved_system_roots)
 
     def _is_sensitive_path(self, rel: Path) -> bool:
         """Check if a workspace-relative path is sensitive (shared by read & write)."""
@@ -280,10 +287,9 @@ class PermissionManager:
             return True
         return bool(set(rel.parts) & self.SENSITIVE_DIRS)
 
-    @staticmethod
-    def _is_high_risk_read_path(path: Path) -> bool:
+    def _is_high_risk_read_path(self, path: Path) -> bool:
         """Check if an absolute path is too sensitive to read even with confirmation."""
-        if str(path) in {"/etc/shadow", "/etc/sudoers"}:
+        if any(path == f.resolve() for f in self._resolved_high_risk_files):
             return True
         if ".ssh" in path.parts and path.name.startswith("id_"):
             return True
