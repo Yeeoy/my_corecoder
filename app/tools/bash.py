@@ -58,11 +58,12 @@ class BashTool(Tool):
         },
         "required": ["command"],
     }
+    timeout_seconds = 120
 
     def __init__(self, workspace_root: str | Path | None = None):
         self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
 
-    def execute(self, command: str, timeout: int = 120) -> ToolResult:
+    def execute(self, command: str, timeout: int = timeout_seconds) -> ToolResult:
         """Run a shell command and return a structured result.
 
         Args:

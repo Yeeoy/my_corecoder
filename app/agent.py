@@ -359,8 +359,10 @@ class Agent:
                 metadata={},
             )
 
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         try:
-            result = tool.execute(**tc.arguments)
+            future = pool.submit(tool.execute, **tc.arguments)
+            result = future.result(timeout=tool.timeout_seconds)
             self.events.emit(
                 EventName.AFTER_TOOL_CALL,
                 {
@@ -374,6 +376,22 @@ class Agent:
                 },
             )
             return result
+        except concurrent.futures.TimeoutError as e:
+            self.events.emit(
+                EventName.TOOL_TIMEOUT,
+                {
+                    "tool_call_id": tc.id,
+                    "name": tc.name,
+                    "error": f"Tool '{tc.name}' timed out after {tool.timeout_seconds}s",
+                    "error_type": type(e).__name__,
+                },
+            )
+            return ToolResult(
+                ok=False,
+                content="",
+                error=f"Tool '{tc.name}' timed out after {tool.timeout_seconds}s",
+                metadata={},
+            )
         except Exception as e:
             self.events.emit(
                 EventName.TOOL_ERROR,
@@ -390,6 +408,8 @@ class Agent:
                 error=f"Error executing {tc.name}: {type(e).__name__}: {e}",
                 metadata={},
             )
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
     def _exec_tools_parallel(self, tool_calls, on_tool=None) -> list[ToolResult]:
         # Run tools sequentially if any tool requires permission

@@ -36,11 +36,7 @@ class TraceCollector:
             e
             for e in self.events
             if e.get("_event")
-            in [
-                EventName.BEFORE_TOOL_CALL,
-                EventName.AFTER_TOOL_CALL,
-                EventName.TOOL_ERROR,
-            ]
+            in [EventName.BEFORE_TOOL_CALL, EventName.AFTER_TOOL_CALL, EventName.TOOL_ERROR, EventName.TOOL_TIMEOUT]
         ]
 
         if not tool_events:
@@ -63,6 +59,7 @@ class TraceCollector:
             if e.get("_event")
             in [
                 EventName.TOOL_ERROR,
+                EventName.TOOL_TIMEOUT,
                 EventName.AGENT_ERROR,
             ]
         ]
@@ -109,7 +106,7 @@ class TraceCollector:
                 f"   preview: {self._shorten(payload.get('result_preview', ''))}"
             )
 
-        if event == EventName.TOOL_ERROR:
+        if event in (EventName.TOOL_ERROR, EventName.TOOL_TIMEOUT):
             error_type = payload.get("error_type") or "ToolError"
             return f"   tool: {payload.get('name')}\n   error: {error_type}: {payload.get('error')}"
 

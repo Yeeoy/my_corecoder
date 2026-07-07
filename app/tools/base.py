@@ -23,6 +23,7 @@ class Tool(ABC):
     name: str
     description: str
     parameters: dict
+    timeout_seconds: int = 30
 
     @abstractmethod
     def execute(self, **kwargs) -> ToolResult: ...

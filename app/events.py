@@ -14,6 +14,7 @@ class EventName:
     BEFORE_TOOL_CALL = "before_tool_call"
     AFTER_TOOL_CALL = "after_tool_call"
     TOOL_ERROR = "tool_error"
+    TOOL_TIMEOUT = "tool_timeout"
 
     AGENT_FINISH = "agent_finish"
     AGENT_ERROR = "agent_error"

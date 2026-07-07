@@ -6,9 +6,10 @@ from app.todo import TodoManager
 from app.tools.agent import AgentTool
 from app.tools.bash import BashTool
 from app.tools.edit import EditFileTool
-from app.tools.glob import GlobTool
+from app.tools.file_glob import GlobTool
 from app.tools.grep import GrepTool
 from app.tools.read import ReadFileTool
+from app.tools.search import SearchTool
 from app.tools.skill import ListSkillFilesTool, ReadSkillFileTool, SkillTool
 from app.tools.time import TimeTool
 from app.tools.todo import TodoTool
@@ -30,6 +31,7 @@ def create_tools(
         GrepTool(workspace_root=workspace_root),
         AgentTool(),
         TimeTool(),
+        SearchTool(),
         SkillTool(skills),
         ListSkillFilesTool(skills),
         ReadSkillFileTool(skills),

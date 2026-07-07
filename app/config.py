@@ -13,6 +13,8 @@ class Config(BaseSettings):
     OPENAI_BASE_URL: str
     CORECODER_MODEL: str
 
+    TAVILY_API_KEY: str
+
     model_config = SettingsConfigDict(
         env_file=ENV_PATH,
         env_file_encoding="utf-8",

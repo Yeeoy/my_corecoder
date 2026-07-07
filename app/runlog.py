@@ -153,6 +153,7 @@ class RunLogger:
             EventName.BEFORE_TOOL_CALL,
             EventName.AFTER_TOOL_CALL,
             EventName.TOOL_ERROR,
+            EventName.TOOL_TIMEOUT,
         }
 
         return [log for log in logs if log.get("event") in tool_events]
@@ -240,7 +241,7 @@ class RunLogger:
         if event == EventName.AFTER_TOOL_CALL:
             return self._format_tool_event(log)
 
-        if event == EventName.TOOL_ERROR:
+        if event in (EventName.TOOL_ERROR, EventName.TOOL_TIMEOUT):
             return self._format_tool_event(log)
 
         if event == EventName.BEFORE_LLM_CALL:
@@ -295,7 +296,7 @@ class RunLogger:
                 f"   preview: {self._shorten(log.get('result_preview', ''))}"
             )
 
-        if event == EventName.TOOL_ERROR:
+        if event in (EventName.TOOL_ERROR, EventName.TOOL_TIMEOUT):
             error_type = log.get("error_type") or "ToolError"
             return f"   tool: {log.get('name')}\n   error: {error_type}: {log.get('error')}"
 
@@ -356,6 +357,7 @@ class RunLogger:
     def _filter_error_events(self, logs: list[dict]) -> list[dict]:
         error_events = {
             EventName.TOOL_ERROR,
+            EventName.TOOL_TIMEOUT,
             EventName.AGENT_ERROR,
         }
 
