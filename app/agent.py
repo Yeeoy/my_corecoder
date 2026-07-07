@@ -167,7 +167,6 @@ class Agent:
                         )
             except KeyboardInterrupt:
                 self._answer_pending_tool_calls(resp.tool_calls)
-                print("[red]KeyboardInterrupt[/red]")
                 raise
             except Exception as e:
                 self.events.emit(
@@ -355,7 +354,7 @@ class Agent:
             return ToolResult(
                 ok=False,
                 content="",
-                error=f"Permission denied: {permission_error}",
+                error=permission_error,
                 metadata={},
             )
 

@@ -6,7 +6,7 @@ from rich.console import Console
 
 from app.agent import Agent
 from app.commands import CommandRouter
-from app.config import config
+from app.config import get_config
 from app.debug import DebugPrinter
 from app.events import EventBus, EventName
 from app.llm import LLM
@@ -110,7 +110,8 @@ def reset_state():
 
 
 def main():
-    llm = LLM(config.CORECODER_MODEL, config.OPENAI_API_KEY, config.OPENAI_BASE_URL)
+    cfg = get_config()
+    llm = LLM(cfg.CORECODER_MODEL, cfg.OPENAI_API_KEY, cfg.OPENAI_BASE_URL)
     agent = Agent(
         llm=llm,
         tools=tools,

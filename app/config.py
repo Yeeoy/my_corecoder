@@ -1,11 +1,9 @@
+from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
-print(f"Loading environment from {ENV_PATH}")
-if not ENV_PATH.exists():
-    raise ValueError(f"{ENV_PATH} does not exist")
 
 
 class Config(BaseSettings):
@@ -13,7 +11,7 @@ class Config(BaseSettings):
     OPENAI_BASE_URL: str
     CORECODER_MODEL: str
 
-    TAVILY_API_KEY: str
+    TAVILY_API_KEY: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=ENV_PATH,
@@ -22,4 +20,6 @@ class Config(BaseSettings):
     )
 
 
-config = Config()
+@lru_cache
+def get_config() -> Config:
+    return Config()

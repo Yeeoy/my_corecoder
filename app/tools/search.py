@@ -4,7 +4,7 @@ from typing import Any
 from pydantic import BaseModel
 from tavily import TavilyClient
 
-from app.config import config
+from app.config import get_config
 from app.tools.base import Tool, ToolResult
 
 
@@ -33,7 +33,17 @@ class SearchTool(Tool):
     def execute(self, query: str) -> ToolResult:
         start = time.perf_counter()
         try:
-            client = TavilyClient(api_key=config.TAVILY_API_KEY)
+            if not get_config().TAVILY_API_KEY:
+                return ToolResult(
+                    ok=False,
+                    content="",
+                    error="TAVILY_API_KEY NOT SET",
+                    metadata={
+                        "tool": self.name,
+                        "duration_ms": int((time.perf_counter() - start) * 1000),
+                    },
+                )
+            client = TavilyClient(api_key=get_config().TAVILY_API_KEY)
             response = client.search(query=query, search_depth="advanced")
             time.sleep(3)
             results = self.format_search_results(response.get("results", []))

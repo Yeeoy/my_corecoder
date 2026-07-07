@@ -6,7 +6,7 @@ import uvicorn
 from rich.console import Console
 
 from app.agent import Agent
-from app.config import config
+from app.config import get_config
 from app.events import EventBus, EventName
 from app.llm import LLM
 from app.mcp_client import MCPClientManager
@@ -59,10 +59,11 @@ def build_agent_runtime():
         workspace_root=PROJECT_ROOT,
     )
 
+    cfg = get_config()
     llm = LLM(
-        config.CORECODER_MODEL,
-        config.OPENAI_API_KEY,
-        config.OPENAI_BASE_URL,
+        cfg.CORECODER_MODEL,
+        cfg.OPENAI_API_KEY,
+        cfg.OPENAI_BASE_URL,
     )
 
     agent = Agent(
