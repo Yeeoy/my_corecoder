@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import threading
 from contextlib import AsyncExitStack, suppress
@@ -12,6 +13,8 @@ from mcp.client.stdio import stdio_client
 
 from app.mcp_adapter import MCPToolAdapter
 from app.mcp_config import MCPServerConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -59,9 +62,9 @@ class MCPClientManager:
             try:
                 runtime = await self._start_server(cfg)
                 self._runtimes[server_name] = runtime
-                print(f"[MCP] Connected {server_name}: {len(runtime.tools)} tools")
+                logger.info("Connected %s: %d tools", server_name, len(runtime.tools))
             except Exception as e:
-                print(f"[MCP] Failed to start server {server_name}: {e}")
+                logger.error("Failed to start server %s: %s", server_name, e)
 
         self._started = True
         return self._build_tool_adapters()
@@ -150,7 +153,7 @@ class MCPClientManager:
             if "429" in error_msg or "rate" in error_msg.lower():
                 upgraded = await self._try_auth_reconnect(server_name)
                 if upgraded:
-                    print(f"[MCP] Reconnected {server_name} with API key, retrying...")
+                    logger.info("Reconnected %s with API key, retrying...", server_name)
                     new_runtime = self._runtimes.get(server_name)
                     if new_runtime:
                         try:
@@ -182,7 +185,7 @@ class MCPClientManager:
             self._runtimes[server_name] = new_runtime
             return True
         except Exception as e:
-            print(f"[MCP] Failed to reconnect {server_name} with auth: {e}")
+            logger.error("Failed to reconnect %s with auth: %s", server_name, e)
             return False
 
     def close_sync(self) -> None:
@@ -192,7 +195,7 @@ class MCPClientManager:
         try:
             self._run_sync(self.close(), timeout=10)
         except Exception as e:
-            print(f"[MCP] Error during shutdown: {e}")
+            logger.error("Error during shutdown: %s", e)
 
         if self._loop.is_running():
             self._loop.call_soon_threadsafe(self._loop.stop)
@@ -208,9 +211,9 @@ class MCPClientManager:
         for server_name, runtime in list(self._runtimes.items()):
             try:
                 await runtime.stack.aclose()
-                print(f"[MCP] Closed {server_name}")
+                logger.info("Closed %s", server_name)
             except Exception as e:
-                print(f"[MCP] Failed to close {server_name}: {e}")
+                logger.error("Failed to close %s: %s", server_name, e)
 
         self._runtimes.clear()
 

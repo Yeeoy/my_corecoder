@@ -9,6 +9,7 @@ from app.agent import Agent
 from app.config import get_config
 from app.events import EventBus, EventName
 from app.llm import LLM
+from app.logging_config import setup_logging
 from app.mcp_client import MCPClientManager
 from app.mcp_config import load_mcp_config, load_mcp_permission_policy
 from app.permission import PermissionManager
@@ -22,6 +23,7 @@ from app.web.event_bridge import WebEventBridge
 from app.web.server import WebRuntime, create_web_app
 from app.web.session import WebAgentSession
 
+setup_logging()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 console = Console(force_terminal=True)
 

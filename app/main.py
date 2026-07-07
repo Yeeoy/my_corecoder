@@ -10,6 +10,7 @@ from app.config import get_config
 from app.debug import DebugPrinter
 from app.events import EventBus, EventName
 from app.llm import LLM
+from app.logging_config import setup_logging
 from app.mcp_client import MCPClientManager
 from app.mcp_config import load_mcp_config, load_mcp_permission_policy
 from app.permission import PermissionManager
@@ -22,11 +23,17 @@ from app.tools import create_tools
 from app.trace import TraceCollector
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LOG_DIR = Path.home() / ".my_corecoder" / "logs"
+
 
 # 状态追踪
 _is_first_token = True
 _is_reasoning = False
 
+# 初始化 日志目录
+setup_logging(log_file=str(LOG_DIR / "corecoder.log"))
+
+# rich console
 console = Console(force_terminal=True)
 
 

@@ -1,6 +1,9 @@
+import logging
 from collections import defaultdict
 from collections.abc import Callable
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 EventHandler = Callable[[dict[str, Any]], None]
 
@@ -44,4 +47,4 @@ class EventBus:
             try:
                 handler(payload)
             except Exception as e:
-                print(f"Error in event handler for {event_name}:{e}")
+                logger.error("Error in event handler for %s: %s", event_name, e, exc_info=True)

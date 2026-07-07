@@ -1,8 +1,11 @@
 import asyncio
 import json
+import logging
 from typing import Any
 
 from fastapi import WebSocket
+
+logger = logging.getLogger(__name__)
 
 
 def _jsonable(value: Any) -> Any:
@@ -42,10 +45,10 @@ class WebEventBridge:
             "payload": _jsonable(payload or {}),
         }
 
-        print(f"[WEB] publish: {event_type}, clients={len(self.clients)}")
+        logger.debug("publish: %s, clients=%d", event_type, len(self.clients))
 
         if not self.loop or not self.loop.is_running():
-            print("[WEB] publish skipped: loop not running")
+            logger.warning("publish skipped: loop not running")
             return
 
         asyncio.run_coroutine_threadsafe(self._broadcast(event), self.loop)
@@ -65,13 +68,13 @@ class WebEventBridge:
     async def _broadcast(self, event: dict) -> None:
         dead_clients: list[WebSocket] = []
 
-        print(f"[WEB] broadcast: {event['type']} -> {len(self.clients)} clients")
+        logger.debug("broadcast: %s -> %d clients", event["type"], len(self.clients))
 
         for client in list(self.clients):
             try:
                 await client.send_json(event)
             except Exception as e:
-                print(f"[WEB] send failed: {e}")
+                logger.warning("send failed: %s", e)
                 dead_clients.append(client)
 
         for client in dead_clients:

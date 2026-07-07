@@ -1,11 +1,13 @@
 import json
-import sys
+import logging
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 from app.events import EventName
+
+logger = logging.getLogger(__name__)
 
 SENSITIVE_KEYS = {
     "api_key",
@@ -42,13 +44,13 @@ class RunLogger:
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         except FileNotFoundError as e:
-            print(f"Log file path does not exist: {e}", file=sys.stderr)
+            logger.error("Log file path does not exist: %s", e)
         except PermissionError as e:
-            print(f"No write permission: {e}", file=sys.stderr)
+            logger.error("No write permission: %s", e)
         except OSError as e:
-            print(f"Disk/path exception: {e}", file=sys.stderr)
+            logger.error("Disk/path exception: %s", e)
         except Exception as e:
-            print(f"Write log unknown error: {e}", file=sys.stderr)
+            logger.error("Write log unknown error: %s", e)
 
     def _sanitize(self, value):
         return self._sanitize_value(value)

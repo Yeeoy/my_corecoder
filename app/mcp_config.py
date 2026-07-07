@@ -1,6 +1,9 @@
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -27,7 +30,7 @@ def load_mcp_config(path: str | Path) -> list[MCPServerConfig]:
 
     for name, cfg in servers.items():
         if "command" not in cfg:
-            print(f"[MCP] Skipping server '{name}': no 'command' (transport type not supported)")
+            logger.info(f"Skipping server '{name}': no 'command' (transport type not supported)")
             continue
         result.append(
             MCPServerConfig(
