@@ -28,7 +28,7 @@ def _session_path(session_id: str) -> Path:
     path = (SESSION_DIR / f"{_normalize_session_id(session_id)}.json").resolve()
     root = SESSION_DIR.resolve()
     if root != path.parent:
-        raise ValueError(f"Invalid session is: {session_id}")
+        raise ValueError(f"Invalid session id: {session_id}")
     return path
 
 

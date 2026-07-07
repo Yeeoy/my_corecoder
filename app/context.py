@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 
 from app.llm import LLM
@@ -257,8 +258,6 @@ class ContextManager:
 
     @staticmethod
     def _extract_key_info(messages: list[dict]) -> str:
-        import re
-
         files_seen = set()
         errors = []
 
