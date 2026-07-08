@@ -32,6 +32,7 @@ class ContextManager:
         self._snip_at = int(max_tokens * 0.5)
         self._summarize_at = int(max_tokens * 0.70)
         self._collapse_at = int(max_tokens * 0.90)
+        self._summarize_floor = int(max_tokens * 0.02)
 
     def maybe_compress(
         self,
@@ -132,7 +133,7 @@ class ContextManager:
         old_tokens = _estimate_tokens(old)
 
         # Do not summarize tiny history. The summary wrapper may be larger than the old content.
-        if len(old) < 4 or old_tokens < 2_000:
+        if len(old) < 4 or old_tokens < self._summarize_floor:
             return False
 
         summary = self._get_summary(old, llm)
