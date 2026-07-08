@@ -1,5 +1,6 @@
 import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -59,6 +60,7 @@ class BashTool(Tool):
         "required": ["command"],
     }
     timeout_seconds = 120
+    _cancellation_token = None
 
     def __init__(self, workspace_root: str | Path | None = None):
         self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
@@ -103,22 +105,85 @@ class BashTool(Tool):
             )
 
         try:
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 command,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=timeout,
                 cwd=cwd,
                 shell=True,
+                start_new_session=True,
             )
 
-            duration_ms = int((time.perf_counter() - start) * 1000)
+            cancelled = False
+            timed_out = False
+            deadline = time.perf_counter() + timeout
 
-            stdout = proc.stdout or ""
-            stderr = proc.stderr or ""
+            while proc.poll() is None:
+                if self._cancellation_token and self._cancellation_token.cancelled:
+                    cancelled = True
+                    self._kill_tree(proc, signal.SIGTERM)
+                    break
+                if time.perf_counter() > deadline:
+                    timed_out = True
+                    self._kill_tree(proc, signal.SIGTERM)
+                    break
+                time.sleep(0.05)
+
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._kill_tree(proc, signal.SIGKILL)
+                stdout, stderr = proc.communicate()
+                return ToolResult(
+                    ok=False,
+                    content=self._build_content(stdout, stderr),
+                    error=f"Command timed out after {timeout} seconds",
+                    metadata={
+                        "tool": self.name,
+                        "command": command,
+                        "cwd": cwd,
+                        "exit_code": None,
+                        "duration_ms": int((time.perf_counter() - start) * 1000),
+                        "timeout": True,
+                    },
+                )
+
+            stdout = stdout or ""
+            stderr = stderr or ""
             content = self._build_content(stdout, stderr)
+
+            if timed_out:
+                return ToolResult(
+                    ok=False,
+                    content=self._build_content(stdout, stderr),
+                    error=f"Command timed out after {timeout} seconds",
+                    metadata={
+                        "tool": self.name,
+                        "command": command,
+                        "cwd": cwd,
+                        "exit_code": None,
+                        "duration_ms": int((time.perf_counter() - start) * 1000),
+                        "timeout": True,
+                    },
+                )
+
+            if cancelled:
+                return ToolResult(
+                    ok=False,
+                    content=self._build_content(stdout, stderr),
+                    error="Command cancelled by user",
+                    metadata={
+                        "tool": self.name,
+                        "command": command,
+                        "cwd": cwd,
+                        "exit_code": None,
+                        "duration_ms": int((time.perf_counter() - start) * 1000),
+                        "timeout": False,
+                    },
+                )
 
             ok = proc.returncode == 0
             if ok:
@@ -133,37 +198,13 @@ class BashTool(Tool):
                     "command": command,
                     "cwd": cwd,
                     "exit_code": proc.returncode,
-                    "duration_ms": duration_ms,
+                    "duration_ms": int((time.perf_counter() - start) * 1000),
                     "timeout": False,
                     "stdout_bytes": len(stdout.encode("utf-8")),
                     "stderr_bytes": len(stderr.encode("utf-8")),
                 },
             )
-        except subprocess.TimeoutExpired as exc:
-            duration_ms = int((time.perf_counter() - start) * 1000)
-
-            # TimeoutExpired may carry partial output as bytes or str.
-            stdout = exc.stdout or ""
-            stderr = exc.stderr or ""
-            if isinstance(stdout, bytes):
-                stdout = stdout.decode("utf-8", errors="replace")
-            if isinstance(stderr, bytes):
-                stderr = stderr.decode("utf-8", errors="replace")
-            return ToolResult(
-                ok=False,
-                content=self._build_content(stdout, stderr),
-                error=f"Command timed out after {timeout} seconds",
-                metadata={
-                    "tool": self.name,
-                    "command": command,
-                    "cwd": cwd,
-                    "exit_code": None,
-                    "duration_ms": duration_ms,
-                    "timeout": True,
-                },
-            )
         except Exception as exc:
-            duration_ms = int((time.perf_counter() - start) * 1000)
             return ToolResult(
                 ok=False,
                 content="",
@@ -173,10 +214,19 @@ class BashTool(Tool):
                     "command": command,
                     "cwd": cwd,
                     "exit_code": None,
-                    "duration_ms": duration_ms,
+                    "duration_ms": int((time.perf_counter() - start) * 1000),
                     "timeout": False,
                 },
             )
+
+    def _kill_tree(self, proc: subprocess.Popen, sig: signal.Signals):
+        try:
+            if os.name == "posix":
+                os.killpg(os.getpgid(proc.pid), sig)
+            else:
+                proc.terminate()
+        except ProcessLookupError:
+            pass
 
     def _build_content(self, stdout: str, stderr: str) -> str:
         """Format captured stdout and stderr for LLM consumption.

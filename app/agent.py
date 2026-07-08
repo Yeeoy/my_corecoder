@@ -2,6 +2,7 @@ import concurrent.futures
 import inspect
 import time
 
+from app.cancellation import CancellationToken
 from app.context import ContextManager
 from app.events import EventBus, EventName
 from app.llm import LLM
@@ -22,6 +23,7 @@ class Agent:
         extra_system_context=None,
         permission_manager: PermissionManager | None = None,
         runtime_state=None,
+        cancellation_token: CancellationToken | None = None,
     ):
         self.llm = llm
         self.tools = tools
@@ -36,6 +38,7 @@ class Agent:
         self.permission_manager = permission_manager or PermissionManager()
         self.runtime_state = runtime_state
         self._permission_handler = None
+        self._cancellation_token = cancellation_token
 
         # sub agent
         for t in self.tools:
@@ -98,6 +101,8 @@ class Agent:
         self._maybe_compress_context()
 
         for _round_index in range(self.max_rounds):
+            if self._cancellation_token and self._cancellation_token.cancelled:
+                raise InterruptedError("Agent stopped by user")
             self.events.emit(
                 EventName.BEFORE_LLM_CALL,
                 {
@@ -357,8 +362,11 @@ class Agent:
                 error=permission_error,
                 metadata={},
             )
+        if self._cancellation_token:
+            tool._cancellation_token = self._cancellation_token
 
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
         try:
             future = pool.submit(tool.execute, **tc.arguments)
             result = future.result(timeout=tool.timeout_seconds)

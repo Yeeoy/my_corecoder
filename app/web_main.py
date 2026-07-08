@@ -6,6 +6,7 @@ import uvicorn
 from rich.console import Console
 
 from app.agent import Agent
+from app.cancellation import CancellationToken
 from app.config import get_config
 from app.events import EventBus, EventName
 from app.llm import LLM
@@ -38,6 +39,7 @@ def build_agent_runtime():
 
     todo_manager = TodoManager()
     permission_manager = PermissionManager(workspace_root=PROJECT_ROOT)
+    cancellation_token = CancellationToken()
 
     mcp_policy = load_mcp_permission_policy(PROJECT_ROOT / ".mcp.json")
     permission_manager.set_mcp_policy(
@@ -76,9 +78,10 @@ def build_agent_runtime():
         events=events,
         extra_system_context=skills.render_active_skills,
         permission_manager=permission_manager,
+        cancellation_token=cancellation_token,
     )
 
-    session = WebAgentSession(agent=agent, bridge=bridge)
+    session = WebAgentSession(agent=agent, bridge=bridge, cancellation_token=cancellation_token)
 
     runtime = WebRuntime(
         bridge=bridge,

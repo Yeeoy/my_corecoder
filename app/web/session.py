@@ -2,17 +2,23 @@ import threading
 from typing import Any
 
 from app.agent import Agent
+from app.cancellation import CancellationToken
 from app.web.event_bridge import WebEventBridge
 
 
 class WebAgentSession:
-    def __init__(self, agent: Agent, bridge: WebEventBridge):
+    def __init__(
+        self,
+        agent: Agent,
+        bridge: WebEventBridge,
+        cancellation_token: CancellationToken,
+    ):
         self.agent = agent
         self.bridge = bridge
         self._lock = threading.Lock()
         self._permission_event = threading.Event()
         self._permission_result: str | None = None
-        self._stop_event = threading.Event()
+        self._cancellation_token = cancellation_token
 
     def submit(self, message: str) -> dict[str, Any]:
         if self._lock.locked():
@@ -44,7 +50,7 @@ class WebAgentSession:
         }
 
     def stop(self) -> dict[str, Any]:
-        self._stop_event.set()
+        self._cancellation_token.cancel()
         return {
             "ok": True,
             "message": "Stop signal sent.",
@@ -69,7 +75,7 @@ class WebAgentSession:
 
     def _run_agent(self, message: str) -> None:
         with self._lock:
-            self._stop_event.clear()
+            self._cancellation_token.clear()
             self.bridge.publish(
                 "user_message",
                 {
@@ -80,7 +86,7 @@ class WebAgentSession:
             full_answer: list[str] = []
 
             def on_token(token: str) -> None:
-                if self._stop_event.is_set():
+                if self._cancellation_token.cancelled:
                     raise InterruptedError("Agent stopped by user.")
                 full_answer.append(token)
                 self.bridge.publish(

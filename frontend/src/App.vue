@@ -181,7 +181,6 @@ function handleServerEvent(event) {
   }
 
   if (event.type === 'tool_display') {
-    isLoading.value = false
     currentAssistantIdx = -1
 
     messages.value.push({
@@ -194,7 +193,6 @@ function handleServerEvent(event) {
   }
 
   if (event.type === 'assistant_token') {
-    isLoading.value = false
     if (currentAssistantIdx < 0) {
       messages.value.push({
         type: 'assistant',
@@ -208,6 +206,7 @@ function handleServerEvent(event) {
   }
 
   if (event.type === 'assistant_done') {
+    isLoading.value = false
     if (event.payload.content) {
       if (currentAssistantIdx >= 0) {
         messages.value[currentAssistantIdx].content = event.payload.content
@@ -231,6 +230,7 @@ function handleServerEvent(event) {
   }
 
   if (event.type === 'agent_error') {
+    isLoading.value = false
     messages.value.push({
       type: 'assistant',
       content: `Error: ${event.payload.error}`
