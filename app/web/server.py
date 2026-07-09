@@ -17,6 +17,10 @@ class PermissionRequest(BaseModel):
     action: str
 
 
+class SwitchRequest(BaseModel):
+    session_id: str
+
+
 @dataclass
 class WebRuntime:
     bridge: WebEventBridge
@@ -97,5 +101,21 @@ def create_web_app(runtime: WebRuntime) -> FastAPI:
                 await websocket.receive_text()
         except WebSocketDisconnect:
             runtime.bridge.disconnect(websocket)
+
+    @app.get("/api/sessions")  # 列表
+    async def list_sessions():
+        return runtime.session.list_sessions()
+
+    @app.get("/api/session")  # 当前会话(id + messages)
+    async def get_session():
+        return runtime.session.get_current()
+
+    @app.post("/api/session/new")  # 新建
+    async def new_session():
+        return runtime.session.new_session()
+
+    @app.post("/api/session/switch")  # 切换
+    async def switch_session(req: SwitchRequest):
+        return runtime.session.switch_session(req.session_id)
 
     return app

@@ -3,6 +3,7 @@ from typing import Any
 
 from app.agent import Agent
 from app.cancellation import CancellationToken
+from app.session import list_sessions, load_session, save_session
 from app.web.event_bridge import WebEventBridge
 
 
@@ -15,6 +16,7 @@ class WebAgentSession:
     ):
         self.agent = agent
         self.bridge = bridge
+        self._session_id = None
         self._lock = threading.Lock()
         self._permission_event = threading.Event()
         self._permission_result: str | None = None
@@ -87,7 +89,7 @@ class WebAgentSession:
 
             def on_token(token: str) -> None:
                 if self._cancellation_token.cancelled:
-                    raise InterruptedError("Agent stopped by user.")
+                    raise InterruptedError("The user performs a cancel operation")
                 full_answer.append(token)
                 self.bridge.publish(
                     "assistant_token",
@@ -120,6 +122,11 @@ class WebAgentSession:
                         "content": result or "".join(full_answer),
                     },
                 )
+                self._session_id = save_session(
+                    self.agent.messages,
+                    self.agent.llm.model,
+                    self._session_id,
+                )
 
             except InterruptedError:
                 self.bridge.publish(
@@ -129,6 +136,11 @@ class WebAgentSession:
                         "error_type": "InterruptedError",
                     },
                 )
+                self._session_id = save_session(
+                    self.agent.messages,
+                    self.agent.llm.model,
+                    self._session_id,
+                )
             except Exception as e:
                 self.bridge.publish(
                     "agent_error",
@@ -137,3 +149,39 @@ class WebAgentSession:
                         "error_type": type(e).__name__,
                     },
                 )
+
+    def get_current(self) -> dict:
+        return {
+            "ok": True,
+            "session_id": self._session_id,
+            "messages": list(self.agent.messages),
+        }
+
+    def list_sessions(self):
+        return {"ok": True, "sessions": list_sessions()}
+
+    def new_session(self) -> dict:
+        if self._lock.locked():
+            self._cancellation_token.cancel()
+        with self._lock:
+            self.agent.messages.clear()
+            self._session_id = None  # 下次 save 会自生成新 id
+        return {"ok": True}
+
+    def switch_session(self, session_id: str) -> dict:
+        loaded = load_session(session_id)  # 返回 (messages, model) 或 None
+        if loaded is None:
+            return {"ok": False, "error": "Session not found"}
+
+        # 若 Agent 正在跑 发送取消信号
+        if self._lock.locked():
+            self._cancellation_token.cancel()
+
+        # 等_run_agent 走完
+        with self._lock:
+            messages, model = loaded
+            self.agent.messages.clear()
+            self.agent.messages.extend(messages)
+            self.agent.llm.model = model
+            self._session_id = session_id
+        return {"ok": True, "session_id": session_id, "messages": messages}
