@@ -60,12 +60,17 @@ class BashTool(Tool):
         "required": ["command"],
     }
     timeout_seconds = 120
-    _cancellation_token = None
+    supports_cancellation = True
 
     def __init__(self, workspace_root: str | Path | None = None):
         self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
 
-    def execute(self, command: str, timeout: int = timeout_seconds) -> ToolResult:
+    def execute(
+        self,
+        command: str,
+        timeout: int = timeout_seconds,
+        cancellation_token=None,
+    ) -> ToolResult:
         """Run a shell command and return a structured result.
 
         Args:
@@ -81,6 +86,7 @@ class BashTool(Tool):
             - ``metadata``: exit_code, duration_ms, cwd, timeout flag, byte counts.
         """
         start = time.perf_counter()
+        token = cancellation_token
 
         # First line of defense — block catastrophically dangerous commands
         # before they reach the shell.
@@ -122,7 +128,7 @@ class BashTool(Tool):
             deadline = time.perf_counter() + timeout
 
             while proc.poll() is None:
-                if self._cancellation_token and self._cancellation_token.cancelled:
+                if token and token.cancelled:
                     cancelled = True
                     self._kill_tree(proc, signal.SIGTERM)
                     break

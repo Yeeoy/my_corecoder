@@ -362,13 +362,18 @@ class Agent:
                 error=permission_error,
                 metadata={},
             )
-        if self._cancellation_token:
-            tool._cancellation_token = self._cancellation_token
+        tool_call_token = None
+        tool_arguments = dict(tc.arguments)
+
+        if getattr(tool, "supports_cancellation", False):
+            tool_call_token = CancellationToken(parent_token=self._cancellation_token)
+            tool_arguments["cancellation_token"] = tool_call_token
 
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        pool_shutdown_done = False
 
         try:
-            future = pool.submit(tool.execute, **tc.arguments)
+            future = pool.submit(tool.execute, **tool_arguments)
             result = future.result(timeout=tool.timeout_seconds)
             self.events.emit(
                 EventName.AFTER_TOOL_CALL,
@@ -384,6 +389,11 @@ class Agent:
             )
             return result
         except concurrent.futures.TimeoutError as e:
+            if tool_call_token is not None:
+                tool_call_token.cancel()
+                pool.shutdown(wait=True, cancel_futures=True)
+                pool_shutdown_done = True
+
             self.events.emit(
                 EventName.TOOL_TIMEOUT,
                 {
@@ -416,7 +426,8 @@ class Agent:
                 metadata={},
             )
         finally:
-            pool.shutdown(wait=False, cancel_futures=True)
+            if not pool_shutdown_done:
+                pool.shutdown(wait=False, cancel_futures=True)
 
     def _exec_tools_parallel(self, tool_calls, on_tool=None) -> list[ToolResult]:
         # Run tools sequentially if any tool requires permission
