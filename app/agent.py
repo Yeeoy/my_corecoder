@@ -115,6 +115,7 @@ class Agent:
             resp = self.llm.chat(
                 self._full_messages(),
                 self._tool_schemas(),
+                cancellation_token=self._cancellation_token,
                 on_token=on_token,
                 on_reasoning=on_reasoning,
             )

@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 
 from openai import APIConnectionError, APIError, APITimeoutError, BadRequestError, OpenAI, RateLimitError
 
+from app.cancellation import CancellationToken
+
 
 @dataclass
 class ToolCall:
@@ -56,6 +58,7 @@ class LLM:
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
+        cancellation_token: CancellationToken | None = None,
         on_token=None,
         on_reasoning=None,
     ):
@@ -81,39 +84,42 @@ class LLM:
         prompt_tok = 0
         completion_tok = 0
 
-        for chunk in stream:
-            if chunk.usage:
-                prompt_tok = chunk.usage.prompt_tokens or 0
-                completion_tok = chunk.usage.completion_tokens or 0
+        with stream:
+            for chunk in stream:
+                if cancellation_token and cancellation_token.cancelled:
+                    raise InterruptedError("Agent stopped by user")
+                if chunk.usage:
+                    prompt_tok = chunk.usage.prompt_tokens or 0
+                    completion_tok = chunk.usage.completion_tokens or 0
 
-            if not chunk.choices:
-                continue
+                if not chunk.choices:
+                    continue
 
-            delta = chunk.choices[0].delta
+                delta = chunk.choices[0].delta
 
-            # accumulate text
-            if delta.content:
-                content_parts.append(delta.content)
-                if on_token:
-                    on_token(delta.content)
+                # accumulate text
+                if delta.content:
+                    content_parts.append(delta.content)
+                    if on_token:
+                        on_token(delta.content)
 
-            # if delta.reasoning_content:
-            #     if on_reasoning:
-            #         on_reasoning(delta.reasoning_content)
+                # if delta.reasoning_content:
+                #     if on_reasoning:
+                #         on_reasoning(delta.reasoning_content)
 
-            # accumulate tool calls across chunks
-            if delta.tool_calls:
-                for tc_delta in delta.tool_calls:
-                    idx = tc_delta.index
-                    if idx not in tc_map:
-                        tc_map[idx] = {"id": "", "name": "", "args": ""}
-                    if tc_delta.id:
-                        tc_map[idx]["id"] = tc_delta.id
-                    if tc_delta.function:
-                        if tc_delta.function.name:
-                            tc_map[idx]["name"] = tc_delta.function.name
-                        if tc_delta.function.arguments:
-                            tc_map[idx]["args"] += tc_delta.function.arguments
+                # accumulate tool calls across chunks
+                if delta.tool_calls:
+                    for tc_delta in delta.tool_calls:
+                        idx = tc_delta.index
+                        if idx not in tc_map:
+                            tc_map[idx] = {"id": "", "name": "", "args": ""}
+                        if tc_delta.id:
+                            tc_map[idx]["id"] = tc_delta.id
+                        if tc_delta.function:
+                            if tc_delta.function.name:
+                                tc_map[idx]["name"] = tc_delta.function.name
+                            if tc_delta.function.arguments:
+                                tc_map[idx]["args"] += tc_delta.function.arguments
 
         parsed: list[ToolCall] = []
         for idx in sorted(tc_map):
@@ -150,3 +156,4 @@ class LLM:
                     time.sleep(wait)
                 else:
                     raise
+        return None
