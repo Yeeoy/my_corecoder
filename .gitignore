@@ -6,11 +6,17 @@
 __pycache__/
 *.pyc
 *.pyo
+.coverage
+.pytest_cache/
 
 # IDE
 .idea/
+.vscode/
 
 # frontend
 build/
 dist/
 node_modules/
+
+# local sessions (persisted chat history — machine-local, not source)
+sessions/
