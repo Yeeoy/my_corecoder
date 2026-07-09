@@ -6,6 +6,12 @@ from app.cancellation import CancellationToken
 from app.llm import LLM
 
 
+def test_client_timeout_configured():
+    client = LLM("x", "x").client
+    assert client.timeout.connect == 5.0
+    assert client.timeout.read == 15.0
+
+
 def _text_chunk(text):
     """造一个最小的 content chunk,字段要凑齐 chat() 访问到的那些。"""
     delta = SimpleNamespace(content=text, tool_calls=None)

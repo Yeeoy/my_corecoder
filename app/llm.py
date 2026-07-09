@@ -2,9 +2,12 @@ import json
 import time
 from dataclasses import dataclass, field
 
+import httpx
 from openai import APIConnectionError, APIError, APITimeoutError, BadRequestError, OpenAI, RateLimitError
 
 from app.cancellation import CancellationToken
+
+DEFAULT_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
 
 @dataclass
@@ -45,10 +48,11 @@ class LLM:
         model: str,
         api_key: str,
         base_url: str | None = None,
+        timeout=DEFAULT_TIMEOUT,
         **kwargs,
     ):
         self.model = model
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
         self.extra = kwargs
 
         self.total_prompt_tokens = 0
