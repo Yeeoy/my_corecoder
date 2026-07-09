@@ -409,6 +409,15 @@ class Agent:
                 error=f"Tool '{tc.name}' timed out after {tool.timeout_seconds}s",
                 metadata={},
             )
+        except KeyboardInterrupt:
+            # TUI Ctrl+C:SIGINT 只到主线程,而 tool 跑在 pool 后台线程。
+            # 复用超时那套——cancel 局部 token,等后台线程 poll 到→_kill_tree 杀掉子进程,
+            # 再把 KeyboardInterrupt 往上抛,保持原「中断退出」行为。
+            if tool_call_token is not None:
+                tool_call_token.cancel()
+                pool.shutdown(wait=True, cancel_futures=True)
+                pool_shutdown_done = True
+            raise
         except Exception as e:
             self.events.emit(
                 EventName.TOOL_ERROR,
