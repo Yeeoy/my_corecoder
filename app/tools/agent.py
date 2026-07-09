@@ -75,6 +75,9 @@ class AgentTool(Tool):
             llm=parent.llm,
             tools=[t for t in parent.tools if t.name != "agent"],  # no recursive agents
             max_rounds=20,
+            cancellation_token=parent._cancellation_token,
+            permission_manager=parent.permission_manager,
+            events=parent.events,
         )
 
         try:
