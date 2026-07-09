@@ -108,6 +108,7 @@
     <form class="composer" @submit.prevent="submit">
       <div class="input-wrapper">
         <input
+          ref="inputRef"
           v-model="input"
           type="text"
           placeholder="Ask CoreCoder anything..."
@@ -148,12 +149,28 @@ const props = defineProps({
   isLoading: {
     type: Boolean,
     default: false
+  },
+  draft: {
+    type: Object,
+    default: () => ({ text: '', seq: 0 })
   }
 })
 
 const messagesRef = ref(null)
+const inputRef = ref(null)
 const input = ref('')
 const isComposing = ref(false)
+
+// 侧栏点击能力项 → 把提示词草稿灌进输入框并聚焦。用 seq 触发,
+// 这样连点同一项(text 不变)也能重新插入。
+watch(
+  () => props.draft.seq,
+  () => {
+    if (!props.draft.text) return
+    input.value = props.draft.text
+    nextTick(() => inputRef.value?.focus())
+  }
+)
 
 const currentTask = computed(() => {
   if (props.messages.length === 0) return 'Ready'

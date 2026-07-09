@@ -118,4 +118,8 @@ def create_web_app(runtime: WebRuntime) -> FastAPI:
     async def switch_session(req: SwitchRequest):
         return runtime.session.switch_session(req.session_id)
 
+    @app.post("/api/session/delete")  # 删除
+    async def delete_session(req: SwitchRequest):
+        return runtime.session.delete_session(req.session_id)
+
     return app

@@ -20,6 +20,43 @@
     </div>
 
     <div class="sidebar-content">
+      <!-- Sessions Section -->
+      <div class="section">
+        <div class="section-header">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" width="14" height="14">
+            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+          </svg>
+          <span>Sessions</span>
+          <button class="new-session-btn" title="New session" @click="$emit('new')">+ New</button>
+        </div>
+
+        <div class="session-list">
+          <div v-if="!sessions.length" class="empty-hint">No sessions yet</div>
+          <div
+            v-for="session in sessions"
+            :key="session.id"
+            class="session-item"
+            :class="{ active: session.id === currentSessionId }"
+            :title="session.preview || session.id"
+            @click="$emit('switch', session.id)"
+          >
+            <div class="session-main">
+              <div class="session-preview">{{ session.preview || '(empty)' }}</div>
+              <div class="session-meta">{{ session.saved_at }}</div>
+            </div>
+            <button
+              class="session-delete"
+              title="Delete session"
+              @click.stop="$emit('delete', session.id)"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" width="13" height="13">
+                <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Todo Section -->
       <div v-if="todos.length" class="section">
         <div class="section-header">
@@ -67,6 +104,7 @@
             :key="tool.name"
             class="tool-item"
             :title="tool.description"
+            @click="$emit('insert-prompt', `请用 ${tool.name} 工具来：`)"
           >
             <span class="tool-name mono">{{ tool.name }}</span>
           </div>
@@ -89,6 +127,7 @@
             :key="skill.name"
             class="skill-item"
             :title="skill.description"
+            @click="$emit('insert-prompt', `请使用「${skill.display_name}」技能来：`)"
           >
             <span class="skill-name">{{ skill.display_name }}</span>
           </div>
@@ -101,10 +140,6 @@
         <div class="info-row">
           <span class="info-label">Messages</span>
           <span class="info-value">{{ messageCount }}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-label">Mode</span>
-          <span class="info-value">default</span>
         </div>
       </div>
       <div class="footer-item" @click="$emit('clear')">
@@ -119,6 +154,7 @@
 
 <script setup>
 import { ref, watch, onMounted } from 'vue'
+import { API_BASE } from '../config'
 
 const props = defineProps({
   todos: {
@@ -132,17 +168,25 @@ const props = defineProps({
   messageCount: {
     type: Number,
     default: 0
+  },
+  sessions: {
+    type: Array,
+    default: () => []
+  },
+  currentSessionId: {
+    type: String,
+    default: null
   }
 })
 
-defineEmits(['clear'])
+defineEmits(['clear', 'switch', 'new', 'delete', 'insert-prompt'])
 
 const tools = ref([])
 const skills = ref([])
 
 async function fetchTools() {
   try {
-    const response = await fetch('http://127.0.0.1:8000/api/tools')
+    const response = await fetch(`${API_BASE}/api/tools`)
     const data = await response.json()
     if (data.ok) {
       tools.value = data.tools
@@ -154,7 +198,7 @@ async function fetchTools() {
 
 async function fetchSkills() {
   try {
-    const response = await fetch('http://127.0.0.1:8000/api/skills')
+    const response = await fetch(`${API_BASE}/api/skills`)
     const data = await response.json()
     if (data.ok) {
       skills.value = data.skills
@@ -361,6 +405,97 @@ onMounted(() => {
   padding: 8px 4px;
 }
 
+.new-session-btn {
+  margin-left: auto;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.new-session-btn:hover {
+  color: var(--accent-text);
+  background: var(--accent-bg);
+}
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 0.15s ease;
+}
+
+.session-item:hover {
+  background: var(--surface-2);
+}
+
+.session-item.active {
+  background: var(--surface-2);
+  border-left-color: var(--accent);
+}
+
+.session-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-preview {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-item.active .session-preview {
+  color: var(--text-primary);
+}
+
+.session-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.session-delete {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.15s ease;
+}
+
+.session-item:hover .session-delete {
+  opacity: 1;
+}
+
+.session-delete:hover {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+
 .tool-list,
 .skill-list {
   display: flex;
@@ -375,6 +510,7 @@ onMounted(() => {
   font-size: 12px;
   color: var(--text-secondary);
   transition: background 0.15s ease;
+  cursor: pointer;
 }
 
 .tool-item:hover,

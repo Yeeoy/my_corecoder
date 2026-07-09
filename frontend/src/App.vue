@@ -6,13 +6,20 @@
           :todos="todos"
           :connection-status="connectionStatus"
           :message-count="messages.length"
+          :sessions="sessions"
+          :current-session-id="currentSessionId"
           @clear="clearChat"
+          @switch="switchSession"
+          @new="newSession"
+          @delete="deleteSession"
+          @insert-prompt="insertPrompt"
         />
 
         <main class="main-panel">
           <ChatPanel
             :messages="messages"
             :is-loading="isLoading"
+            :draft="composerDraft"
             @send="sendMessage"
             @stop="stopAgent"
           />
@@ -35,37 +42,29 @@ import { NConfigProvider, NMessageProvider, darkTheme } from 'naive-ui'
 import Sidebar from './components/Sidebar.vue'
 import ChatPanel from './components/ChatPanel.vue'
 import PermissionDialog from './components/PermissionDialog.vue'
+import { openaiToUiMessages } from './utils/messageFormat'
+import { API_BASE, WS_BASE } from './config'
 
-const STORAGE_KEY_MESSAGES = 'corecoder-messages'
-const STORAGE_KEY_TODOS = 'corecoder-todos'
-
-function loadFromStorage(key, defaultValue) {
-  try {
-    const stored = localStorage.getItem(key)
-    return stored ? JSON.parse(stored) : defaultValue
-  } catch {
-    return defaultValue
-  }
-}
-
-const messages = ref(loadFromStorage(STORAGE_KEY_MESSAGES, []))
-const events = ref([])
+// 对话历史的真相在后端(sessions/*.json),前端连上后从 /api/session 拉取渲染,
+// 不再用 localStorage 存对话 —— 单一数据源,避免前后端不一致。
+const messages = ref([])
 const connectionStatus = ref('disconnected')
 const permissionVisible = ref(false)
 const permissionRequest = ref({})
-const todos = ref(loadFromStorage(STORAGE_KEY_TODOS, []))
+const todos = ref([])
 const isLoading = ref(false)
 
-watch(messages, (val) => {
-  localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify(val))
-}, { deep: true })
+// 会话管理状态
+const sessions = ref([])
+const currentSessionId = ref(null)
 
-watch(todos, (val) => {
-  localStorage.setItem(STORAGE_KEY_TODOS, JSON.stringify(val))
-}, { deep: true })
+// 点击侧栏能力项(skill/tool)时,往输入框插入的提示词草稿。
+// 用 seq 让「连点同一项」也能触发 ChatPanel 的 watch。
+const composerDraft = ref({ text: '', seq: 0 })
 
 let ws = null
 let reconnectTimer = null
+let reconnectAttempts = 0
 let currentAssistantIdx = -1
 
 function connectWebSocket() {
@@ -75,15 +74,16 @@ function connectWebSocket() {
 
   connectionStatus.value = 'connecting'
 
-  ws = new WebSocket('ws://127.0.0.1:8000/ws/events')
+  ws = new WebSocket(`${WS_BASE}/ws/events`)
 
   ws.onopen = () => {
     connectionStatus.value = 'connected'
     console.log('[CoreCoder WebSocket] connected')
 
+    // 连上就重置退避计数,下次断开重新从 1s 起算
+    reconnectAttempts = 0
+
     // 后端重启后清除旧状态
-    messages.value = []
-    todos.value = []
     currentAssistantIdx = -1
   }
 
@@ -104,11 +104,15 @@ function connectWebSocket() {
 
   ws.onclose = () => {
     connectionStatus.value = 'disconnected'
-    console.log('[CoreCoder WebSocket] closed, reconnecting...')
+
+    // 指数退避:1s, 2s, 4s ... 封顶 30s,避免后端挂掉时疯狂重连刷屏
+    const delay = Math.min(1000 * 2 ** reconnectAttempts, 30000)
+    reconnectAttempts += 1
+    console.log(`[CoreCoder WebSocket] closed, reconnecting in ${delay}ms`)
 
     reconnectTimer = setTimeout(() => {
       connectWebSocket()
-    }, 1000)
+    }, delay)
   }
 }
 
@@ -138,12 +142,6 @@ function parseTodoText(text) {
 }
 
 function handleServerEvent(event) {
-  events.value.push(event)
-
-  if (events.value.length > 300) {
-    events.value = events.value.slice(-300)
-  }
-
   if (event.type === 'websocket_connected') {
     return
   }
@@ -226,6 +224,13 @@ function handleServerEvent(event) {
       }
     }
 
+    // 对话已落盘,刷新会话列表(新会话首次对话会新增一条 session)
+    refreshSessions()
+    // 新会话首次对话后后端才生成 id,同步过来让侧边栏高亮当前项
+    if (currentSessionId.value === null) {
+      syncCurrentSessionId()
+    }
+
     return
   }
 
@@ -244,7 +249,7 @@ async function handlePermissionResponse(action) {
   permissionVisible.value = false
 
   try {
-    const response = await fetch('http://127.0.0.1:8000/api/permission/respond', {
+    const response = await fetch(`${API_BASE}/api/permission/respond`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -268,7 +273,7 @@ function clearChat() {
 
 async function stopAgent() {
   try {
-    await fetch('http://127.0.0.1:8000/api/stop', {
+    await fetch(`${API_BASE}/api/stop`, {
       method: 'POST'
     })
     isLoading.value = false
@@ -290,7 +295,7 @@ async function sendMessage(content) {
   console.log('[CoreCoder chat submit]', text)
 
   try {
-    const response = await fetch('http://127.0.0.1:8000/api/chat', {
+    const response = await fetch(`${API_BASE}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -319,8 +324,134 @@ async function sendMessage(content) {
   }
 }
 
+// ---- 会话管理 ----
+// 会话真相在后端(sessions/*.json)。前端负责:拉列表、拉当前会话渲染、切换、新建。
+
+async function refreshSessions() {
+  try {
+    const response = await fetch(`${API_BASE}/api/sessions`)
+    const data = await response.json()
+    if (data.ok) {
+      sessions.value = data.sessions
+    }
+  } catch (error) {
+    console.error('[CoreCoder] Failed to refresh sessions:', error)
+  }
+}
+
+async function loadCurrentSession() {
+  try {
+    const response = await fetch(`${API_BASE}/api/session`)
+    const data = await response.json()
+    if (data.ok) {
+      messages.value = openaiToUiMessages(data.messages)
+      currentSessionId.value = data.session_id
+      currentAssistantIdx = -1
+    }
+  } catch (error) {
+    console.error('[CoreCoder] Failed to load current session:', error)
+  }
+}
+
+// 新会话首次对话后,后端才生成 id;只同步 id(不重拉 messages,避免抹掉
+// 实时事件填进去的 tool duration 等 UI-only 信息)
+async function syncCurrentSessionId() {
+  try {
+    const response = await fetch(`${API_BASE}/api/session`)
+    const data = await response.json()
+    if (data.ok) {
+      currentSessionId.value = data.session_id
+    }
+  } catch (error) {
+    console.error('[CoreCoder] Failed to sync current session id:', error)
+  }
+}
+
+async function switchSession(sessionId) {
+  if (sessionId === currentSessionId.value) return
+
+  try {
+    const response = await fetch(`${API_BASE}/api/session/switch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ session_id: sessionId })
+    })
+    const data = await response.json()
+    if (data.ok) {
+      messages.value = openaiToUiMessages(data.messages)
+      currentSessionId.value = data.session_id
+      // 切换后重置流式/加载状态,否则残留的 currentAssistantIdx 会把
+      // 新会话的 token 拼到旧卡片上
+      todos.value = []
+      currentAssistantIdx = -1
+      isLoading.value = false
+    } else {
+      console.error('[CoreCoder] Switch failed:', data.error)
+    }
+  } catch (error) {
+    console.error('[CoreCoder] Failed to switch session:', error)
+  }
+}
+
+async function newSession() {
+  try {
+    const response = await fetch(`${API_BASE}/api/session/new`, {
+      method: 'POST'
+    })
+    const data = await response.json()
+    if (data.ok) {
+      // new 只返回 {ok},本地清空即可;新 id 等首次对话落盘后再同步
+      messages.value = []
+      todos.value = []
+      currentSessionId.value = null
+      currentAssistantIdx = -1
+      isLoading.value = false
+      refreshSessions()
+    }
+  } catch (error) {
+    console.error('[CoreCoder] Failed to create new session:', error)
+  }
+}
+
+async function deleteSession(sessionId) {
+  try {
+    const response = await fetch(`${API_BASE}/api/session/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ session_id: sessionId })
+    })
+    const data = await response.json()
+    if (data.ok) {
+      // 后端返回删除后的当前会话 id;若删的是当前会话,后端已就地清空
+      if (data.current === null) {
+        messages.value = []
+        todos.value = []
+        currentSessionId.value = null
+        currentAssistantIdx = -1
+        isLoading.value = false
+      }
+      refreshSessions()
+    } else {
+      console.error('[CoreCoder] Delete failed:', data.error)
+    }
+  } catch (error) {
+    console.error('[CoreCoder] Failed to delete session:', error)
+  }
+}
+
+// 点击侧栏能力项 → 往输入框插入提示词草稿并聚焦。把「展示型」侧栏升级成「操作型」。
+function insertPrompt(text) {
+  composerDraft.value = { text, seq: composerDraft.value.seq + 1 }
+}
+
 onMounted(() => {
   connectWebSocket()
+  loadCurrentSession()
+  refreshSessions()
 })
 
 onBeforeUnmount(() => {
@@ -341,6 +472,7 @@ onBeforeUnmount(() => {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
+  grid-template-rows: minmax(0, 1fr);
   color: var(--text-primary);
   background: var(--bg-page);
   gap: 1px;
@@ -352,5 +484,6 @@ onBeforeUnmount(() => {
   padding: 16px;
   overflow: hidden;
   background: var(--bg-page);
+  display:flex; flex-direction:column; min-height:0;
 }
 </style>

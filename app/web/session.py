@@ -3,7 +3,7 @@ from typing import Any
 
 from app.agent import Agent
 from app.cancellation import CancellationToken
-from app.session import list_sessions, load_session, save_session
+from app.session import delete_session, list_sessions, load_session, save_session
 from app.web.event_bridge import WebEventBridge
 
 
@@ -185,3 +185,18 @@ class WebAgentSession:
             self.agent.llm.model = model
             self._session_id = session_id
         return {"ok": True, "session_id": session_id, "messages": messages}
+
+    def delete_session(self, session_id: str) -> dict:
+        deleted = delete_session(session_id)
+        if not deleted:
+            return {"ok": False, "error": "Session not found"}
+
+        # 删的是当前会话 → 就地清空,回到「新会话」状态
+        if session_id == self._session_id:
+            if self._lock.locked():
+                self._cancellation_token.cancel()
+            with self._lock:
+                self.agent.messages.clear()
+                self._session_id = None
+
+        return {"ok": True, "deleted": session_id, "current": self._session_id}
