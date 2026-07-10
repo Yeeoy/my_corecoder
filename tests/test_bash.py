@@ -1,3 +1,14 @@
+import os
+import shlex
+import subprocess
+import sys
+from types import SimpleNamespace
+
+import pytest
+
+from app.agent import Agent
+from app.cancellation import CancellationToken
+from app.permission import PermissionManager
 from app.tools import BashTool
 from app.tools.bash import _check_dangerous
 
@@ -46,6 +57,130 @@ def test_bash_dangerous_blocked():
 def test_bash_timeout():
     bash_tool = BashTool()
     result = bash_tool.execute(command="sleep 2", timeout=1)
-    print(result)
     assert not result.ok
     assert result.metadata.get("timeout")
+
+
+def make_tool_call(
+    name: str,
+    arguments: dict,
+    call_id: str,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=call_id,
+        name=name,
+        arguments=arguments,
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Bash cwd uses thread-local state, while separate Agent tool calls run in newly created worker threads",
+)
+def test_bash_cwd_persists_between_agent_tool_calls(tmp_path):
+    """Agent worker changes must persist across separate Bash tool calls."""
+
+    subdir = tmp_path / "subdir"
+    subdir.mkdir()
+
+    bash_tool = BashTool(workspace_root=tmp_path)
+
+    agent = Agent(
+        llm=SimpleNamespace(),
+        tools=[bash_tool],
+        permission_manager=PermissionManager(workspace_root=tmp_path),
+        cancellation_token=CancellationToken(),
+    )
+
+    change_result = agent._exec_tool(
+        make_tool_call(
+            name="bash",
+            arguments={
+                "command": f"cd {shlex.quote(str(subdir))}",
+            },
+            call_id="call-cd",
+        )
+    )
+
+    assert change_result.ok
+
+    pwd_result = agent._exec_tool(
+        make_tool_call(
+            name="bash",
+            arguments={"command": "pwd"},
+            call_id="call-pwd",
+        )
+    )
+
+    assert pwd_result.ok
+    assert str(subdir.resolve()) in pwd_result.content
+
+
+def build_shell_command(args: list[str]) -> str:
+    if os.name == "nt":
+        return subprocess.list2cmdline(args)
+    return shlex.join(args)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "BashTool waits for process exit before draining stdout, "
+        "so large output can fill the pipe and cause a false timeout"
+    ),
+)
+def test_bash_large_stdout_does_not_timeout(tmp_path):
+    """Large stdout must not fill the pipe and cause a false timeout."""
+
+    bash_tool = BashTool(tmp_path)
+
+    python_code = "import sys; sys.stdout.write('x' * 500_000); sys.stdout.flush()"
+
+    command = build_shell_command(
+        [
+            sys.executable,
+            "-c",
+            python_code,
+        ]
+    )
+
+    result = bash_tool.execute(
+        command=command,
+        timeout=2,
+    )
+
+    assert result.ok
+    assert result.metadata.get("timeout") is not True
+    assert len(result.content) >= 1000
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=("BashTool does not drain stdout and stderr while the process is running"),
+)
+def test_bash_large_stdout_and_stderr_do_not_deadlock(tmp_path):
+    bash_tool = BashTool(tmp_path)
+
+    python_code = (
+        "import sys;"
+        "sys.stdout.write('o' * 300_000);"
+        "sys.stdout.flush();"
+        "sys.stderr.write('e' * 300_000);"
+        "sys.stderr.flush();"
+    )
+
+    command = build_shell_command(
+        [
+            sys.executable,
+            "-c",
+            python_code,
+        ]
+    )
+
+    result = bash_tool.execute(
+        command,
+        timeout=2,
+    )
+
+    assert result.ok
+    assert result.metadata.get("timeout") is not True
