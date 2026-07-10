@@ -45,7 +45,6 @@ class SearchTool(Tool):
                 )
             client = TavilyClient(api_key=get_config().TAVILY_API_KEY)
             response = client.search(query=query, search_depth="advanced")
-            time.sleep(3)
             results = self.format_search_results(response.get("results", []))
             return ToolResult(
                 ok=True,
