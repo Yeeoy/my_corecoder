@@ -1,7 +1,10 @@
+import contextlib
 import os
 import shlex
+import signal
 import subprocess
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -184,3 +187,103 @@ def test_bash_large_stdout_and_stderr_do_not_deadlock(tmp_path):
 
     assert result.ok
     assert result.metadata.get("timeout") is not True
+
+
+def process_is_alive(pid: int) -> bool:
+    """Return True when a POSIX process is running and is not a zombie."""
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+    result = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    state = result.stdout.strip()
+
+    # A zombie has exited already, although its process-table entry
+    # has not yet been reaped.
+    return bool(state) and not state.startswith("Z")
+
+
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="The process-group implementation currently targets POSIX",
+)
+def test_bash_timeout_kills_descendant_processes(tmp_path):
+    """Timing out must terminate descendants, not only the shell process."""
+
+    pid_file = tmp_path / "child.pid"
+    script_file = tmp_path / "spawn_child.py"
+
+    script_file.write_text(
+        """
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+child = subprocess.Popen(
+    [
+        sys.executable,
+        "-c",
+        "import time; time.sleep(60)",
+    ]
+)
+
+Path(sys.argv[1]).write_text(
+    str(child.pid),
+    encoding="utf-8",
+)
+
+time.sleep(60)
+""".strip(),
+        encoding="utf-8",
+    )
+
+    command = build_shell_command(
+        [
+            sys.executable,
+            str(script_file),
+            str(pid_file),
+        ]
+    )
+
+    bash_tool = BashTool(tmp_path)
+    child_pid: int | None = None
+
+    try:
+        result = bash_tool.execute(
+            command=command,
+            timeout=1,
+        )
+
+        assert not result.ok
+        assert result.metadata.get("timeout") is True
+
+        # The helper script should have spawned its child before timeout.
+        assert pid_file.exists()
+
+        child_pid = int(pid_file.read_text(encoding="utf-8"))
+
+        # Process termination and OS reaping are not necessarily immediate.
+        deadline = time.monotonic() + 2
+
+        while process_is_alive(child_pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+        assert not process_is_alive(child_pid)
+
+    finally:
+        # Defensive cleanup: a failing test must not leave a 60-second
+        # subprocess running on the developer machine or CI runner.
+        if child_pid is not None and process_is_alive(child_pid):
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child_pid, signal.SIGKILL)
