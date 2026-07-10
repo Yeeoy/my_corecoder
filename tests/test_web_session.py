@@ -1,8 +1,6 @@
 import threading
 from types import SimpleNamespace
 
-import pytest
-
 from app.cancellation import CancellationToken
 from app.web.session import WebAgentSession
 
@@ -25,10 +23,6 @@ class FakeBridge:
             self.permission_requested.set()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="WebAgentSession.stop() cancels the run token but does not wake the pending permission event",
-)
 def test_stop_releases_pending_permission_wait():
     bridge = FakeBridge()
     cancellation_token = CancellationToken()

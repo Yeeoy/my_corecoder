@@ -465,6 +465,11 @@ class Agent:
             if tc.name == "todo":
                 return True
 
+            tool = self._tool_by_name.get(tc.name)
+
+            if tool is not None and not getattr(tool, "parallel_safe", True):
+                return True
+
             decision = self.permission_manager.check_tool_call(tc.name, tc.arguments)
             if decision.action != "allow":
                 return True

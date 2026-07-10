@@ -76,10 +76,6 @@ def make_tool_call(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Bash cwd uses thread-local state, while separate Agent tool calls run in newly created worker threads",
-)
 def test_bash_cwd_persists_between_agent_tool_calls(tmp_path):
     """Agent worker changes must persist across separate Bash tool calls."""
 
@@ -125,13 +121,6 @@ def build_shell_command(args: list[str]) -> str:
     return shlex.join(args)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BashTool waits for process exit before draining stdout, "
-        "so large output can fill the pipe and cause a false timeout"
-    ),
-)
 def test_bash_large_stdout_does_not_timeout(tmp_path):
     """Large stdout must not fill the pipe and cause a false timeout."""
 
@@ -157,10 +146,6 @@ def test_bash_large_stdout_does_not_timeout(tmp_path):
     assert len(result.content) >= 1000
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=("BashTool does not drain stdout and stderr while the process is running"),
-)
 def test_bash_large_stdout_and_stderr_do_not_deadlock(tmp_path):
     bash_tool = BashTool(tmp_path)
 

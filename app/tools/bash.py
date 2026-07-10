@@ -1,4 +1,5 @@
 import os
+import queue
 import re
 import signal
 import subprocess
@@ -7,8 +8,6 @@ import time
 from pathlib import Path
 
 from app.tools.base import Tool, ToolResult
-
-_local = threading.local()
 
 # ── BashTool-internal danger patterns ────────────────────────────────────
 # These are the FIRST line of defense, applied before PermissionManager.
@@ -33,11 +32,8 @@ _DANGEROUS_PATTERNS = [
 
 
 class BashTool(Tool):
-    """Execute shell commands with safety checks, timeout, and cwd tracking.
-
-    Output is captured via subprocess and returned as a structured ToolResult.
-    Successful ``cd`` commands persist the working directory across calls via
-    thread-local storage.
+    """
+    Execute shell commands with safety checks, timeout, and cwd tracking.
     """
 
     name = "bash"
@@ -59,11 +55,13 @@ class BashTool(Tool):
         },
         "required": ["command"],
     }
+    parallel_safe = False
     timeout_seconds = 120
     supports_cancellation = True
 
     def __init__(self, workspace_root: str | Path | None = None):
         self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
+        self._cwd = str(self.workspace_root)
 
     def execute(
         self,
@@ -71,159 +69,11 @@ class BashTool(Tool):
         timeout: int = timeout_seconds,
         cancellation_token=None,
     ) -> ToolResult:
-        """Run a shell command and return a structured result.
-
-        Args:
-            command: The shell command string to execute.
-            timeout: Maximum execution time in seconds (default 120).
-
-        Returns:
-            ToolResult with:
-            - ``ok``: True when exit code is 0.
-            - ``content``: Formatted stdout/stderr (always present so the LLM
-              can inspect output even on failure).
-            - ``error``: None on success, or a human-readable reason on failure.
-            - ``metadata``: exit_code, duration_ms, cwd, timeout flag, byte counts.
-        """
-        start = time.perf_counter()
-        token = cancellation_token
-
-        # First line of defense — block catastrophically dangerous commands
-        # before they reach the shell.
-        warning = _check_dangerous(command)
-        cwd = getattr(_local, "cwd", None) or str(self.workspace_root)
-
-        if warning:
-            return ToolResult(
-                ok=False,
-                content="",
-                error=(
-                    f"Blocked: {warning}\nCommand: {command}\nIf intentional, modify the command to be more specific."
-                ),
-                metadata={
-                    "tool": self.name,
-                    "command": command,
-                    "cwd": cwd,
-                    "exit_code": None,
-                    "duration_ms": 0,
-                    "timeout": False,
-                },
-            )
-
-        try:
-            proc = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                cwd=cwd,
-                shell=True,
-                start_new_session=True,
-            )
-
-            cancelled = False
-            timed_out = False
-            deadline = time.perf_counter() + timeout
-
-            while proc.poll() is None:
-                if token and token.cancelled:
-                    cancelled = True
-                    self._kill_tree(proc, signal.SIGTERM)
-                    break
-                if time.perf_counter() > deadline:
-                    timed_out = True
-                    self._kill_tree(proc, signal.SIGTERM)
-                    break
-                time.sleep(0.05)
-
-            try:
-                stdout, stderr = proc.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._kill_tree(proc, signal.SIGKILL)
-                stdout, stderr = proc.communicate()
-                return ToolResult(
-                    ok=False,
-                    content=self._build_content(stdout, stderr),
-                    error=f"Command timed out after {timeout} seconds",
-                    metadata={
-                        "tool": self.name,
-                        "command": command,
-                        "cwd": cwd,
-                        "exit_code": None,
-                        "duration_ms": int((time.perf_counter() - start) * 1000),
-                        "timeout": True,
-                    },
-                )
-
-            stdout = stdout or ""
-            stderr = stderr or ""
-            content = self._build_content(stdout, stderr)
-
-            if timed_out:
-                return ToolResult(
-                    ok=False,
-                    content=self._build_content(stdout, stderr),
-                    error=f"Command timed out after {timeout} seconds",
-                    metadata={
-                        "tool": self.name,
-                        "command": command,
-                        "cwd": cwd,
-                        "exit_code": None,
-                        "duration_ms": int((time.perf_counter() - start) * 1000),
-                        "timeout": True,
-                    },
-                )
-
-            if cancelled:
-                return ToolResult(
-                    ok=False,
-                    content=self._build_content(stdout, stderr),
-                    error="Command cancelled by user",
-                    metadata={
-                        "tool": self.name,
-                        "command": command,
-                        "cwd": cwd,
-                        "exit_code": None,
-                        "duration_ms": int((time.perf_counter() - start) * 1000),
-                        "timeout": False,
-                    },
-                )
-
-            ok = proc.returncode == 0
-            if ok:
-                _update_cwd(command, cwd)
-
-            return ToolResult(
-                ok=ok,
-                content=content,
-                error=None if ok else (stderr.strip() or f"Command failed with exit code {proc.returncode}"),
-                metadata={
-                    "tool": self.name,
-                    "command": command,
-                    "cwd": cwd,
-                    "exit_code": proc.returncode,
-                    "duration_ms": int((time.perf_counter() - start) * 1000),
-                    "timeout": False,
-                    "stdout_bytes": len(stdout.encode("utf-8")),
-                    "stderr_bytes": len(stderr.encode("utf-8")),
-                },
-            )
-        except Exception as exc:
-            return ToolResult(
-                ok=False,
-                content="",
-                error=f"Failed to run command: {type(exc).__name__}: {exc}",
-                metadata={
-                    "tool": self.name,
-                    "command": command,
-                    "cwd": cwd,
-                    "exit_code": None,
-                    "duration_ms": int((time.perf_counter() - start) * 1000),
-                    "timeout": False,
-                },
-            )
+        return self._execute_serialized(
+            command=command,
+            timeout=timeout,
+            cancellation_token=cancellation_token,
+        )
 
     def _kill_tree(self, proc: subprocess.Popen, sig: signal.Signals):
         try:
@@ -255,6 +105,206 @@ class BashTool(Tool):
 
         return "\n\n".join(parts)
 
+    def _execute_serialized(
+        self,
+        command: str,
+        timeout: int,
+        cancellation_token=None,
+    ) -> ToolResult:
+        start = time.perf_counter()
+        token = cancellation_token
+
+        # First line of defense — block catastrophically dangerous commands
+        # before they reach the shell.
+        warning = _check_dangerous(command)
+        cwd = self._cwd
+
+        if warning:
+            return ToolResult(
+                ok=False,
+                content="",
+                error=(
+                    f"Blocked: {warning}\nCommand: {command}\nIf intentional, modify the command to be more specific."
+                ),
+                metadata={
+                    "tool": self.name,
+                    "command": command,
+                    "cwd": cwd,
+                    "exit_code": None,
+                    "duration_ms": 0,
+                    "timeout": False,
+                },
+            )
+
+        try:
+            proc = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=cwd,
+                shell=True,
+                start_new_session=True,
+            )
+
+            output_queue: queue.Queue[tuple[str, str, Exception | None]] = queue.Queue(maxsize=1)
+
+            def collect_output() -> None:
+                try:
+                    stdout, stderr = proc.communicate()
+
+                    output_queue.put(
+                        (
+                            stdout or "",
+                            stderr or "",
+                            None,
+                        )
+                    )
+                except Exception as exc:
+                    output_queue.put(("", "", exc))
+
+            drain_thread = threading.Thread(
+                target=collect_output,
+                name=f"bash-output-drain-{proc.pid}",
+                daemon=True,
+            )
+            drain_thread.start()
+
+            cancelled = False
+            timed_out = False
+            deadline = time.perf_counter() + timeout
+
+            stdout = ""
+            stderr = ""
+            drain_error: Exception | None = None
+
+            while True:
+                try:
+                    stdout, stderr, drain_error = output_queue.get(
+                        timeout=0.05,
+                    )
+                    break
+
+                except queue.Empty:
+                    if token and token.cancelled:
+                        cancelled = True
+                        self._kill_tree(proc, signal.SIGTERM)
+                        break
+
+                    if time.perf_counter() >= deadline:
+                        timed_out = True
+                        self._kill_tree(proc, signal.SIGTERM)
+                        break
+
+            if cancelled or timed_out:
+                try:
+                    stdout, stderr, drain_error = output_queue.get(
+                        timeout=5,
+                    )
+                except queue.Empty:
+                    self._kill_tree(proc, signal.SIGKILL)
+
+                    try:
+                        stdout, stderr, drain_error = output_queue.get(
+                            timeout=5,
+                        )
+                    except queue.Empty:
+                        reason = (
+                            "Command cancelled by user" if cancelled else f"Command timed out after {timeout} seconds"
+                        )
+
+                        return ToolResult(
+                            ok=False,
+                            content="Command produced no collectable output.",
+                            error=(f"{reason}; failed to collect subprocess output after forced termination"),
+                            metadata={
+                                "tool": self.name,
+                                "command": command,
+                                "cwd": cwd,
+                                "exit_code": proc.returncode,
+                                "duration_ms": int((time.perf_counter() - start) * 1000),
+                                "timeout": timed_out,
+                            },
+                        )
+
+            drain_thread.join(timeout=0.1)
+
+            if drain_error is not None:
+                raise drain_error
+
+            content = self._build_content(stdout, stderr)
+
+            if timed_out:
+                return ToolResult(
+                    ok=False,
+                    content=content,
+                    error=f"Command timed out after {timeout} seconds",
+                    metadata={
+                        "tool": self.name,
+                        "command": command,
+                        "cwd": cwd,
+                        "exit_code": proc.returncode,
+                        "duration_ms": int((time.perf_counter() - start) * 1000),
+                        "timeout": True,
+                        "stdout_bytes": len(stdout.encode("utf-8")),
+                        "stderr_bytes": len(stderr.encode("utf-8")),
+                    },
+                )
+
+            if cancelled:
+                return ToolResult(
+                    ok=False,
+                    content=content,
+                    error="Command cancelled by user",
+                    metadata={
+                        "tool": self.name,
+                        "command": command,
+                        "cwd": cwd,
+                        "exit_code": proc.returncode,
+                        "duration_ms": int((time.perf_counter() - start) * 1000),
+                        "timeout": False,
+                        "stdout_bytes": len(stdout.encode("utf-8")),
+                        "stderr_bytes": len(stderr.encode("utf-8")),
+                    },
+                )
+
+            ok = proc.returncode == 0
+
+            if ok:
+                self._cwd = _resolve_next_cwd(command, cwd)
+
+            return ToolResult(
+                ok=ok,
+                content=content,
+                error=(None if ok else (stderr.strip() or f"Command failed with exit code {proc.returncode}")),
+                metadata={
+                    "tool": self.name,
+                    "command": command,
+                    "cwd": cwd,
+                    "exit_code": proc.returncode,
+                    "duration_ms": int((time.perf_counter() - start) * 1000),
+                    "timeout": False,
+                    "stdout_bytes": len(stdout.encode("utf-8")),
+                    "stderr_bytes": len(stderr.encode("utf-8")),
+                },
+            )
+        except Exception as exc:
+            return ToolResult(
+                ok=False,
+                content="",
+                error=f"Failed to run command: {type(exc).__name__}: {exc}",
+                metadata={
+                    "tool": self.name,
+                    "command": command,
+                    "cwd": cwd,
+                    "exit_code": None,
+                    "duration_ms": int((time.perf_counter() - start) * 1000),
+                    "timeout": False,
+                },
+            )
+
 
 def _check_dangerous(cmd: str) -> str | None:
     """Return a human-readable reason if *cmd* matches a known-dangerous pattern.
@@ -267,24 +317,27 @@ def _check_dangerous(cmd: str) -> str | None:
     return None
 
 
-def _update_cwd(command: str, current_cwd: str):
-    """Track working-directory changes across bash invocations.
-
-    Parses ``cd`` segments in a ``&&``-chained command and updates
-    thread-local storage so subsequent bash calls inherit the new cwd.
-    Only persists a change when the target directory actually exists.
-    """
+def _resolve_next_cwd(command: str, current_cwd: str):
     running = current_cwd
-    changed = False
+
     for part in command.split("&&"):
         part = part.strip()
-        if part.startswith("cd "):
-            target = part[3:].strip().strip("'\"")
-            if target:
-                new_dir = os.path.normpath(os.path.join(running, os.path.expanduser(target)))
-                if os.path.isdir(new_dir):
-                    running = new_dir
-                    changed = True
 
-    if changed:
-        _local.cwd = running
+        if not part.startswith("cd "):
+            continue
+
+        target = part[3:].strip().strip("'\"")
+
+        if not target:
+            continue
+
+        expanded_target = os.path.expanduser(target)
+
+        if os.path.isabs(expanded_target):
+            new_dir = os.path.normpath(expanded_target)
+        else:
+            new_dir = os.path.normpath(os.path.join(running, expanded_target))
+
+        if os.path.isdir(new_dir):
+            running = new_dir
+    return running

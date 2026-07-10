@@ -53,6 +53,7 @@ class WebAgentSession:
 
     def stop(self) -> dict[str, Any]:
         self._cancellation_token.cancel()
+        self._permission_event.set()
         return {
             "ok": True,
             "message": "Stop signal sent.",
@@ -61,6 +62,9 @@ class WebAgentSession:
     def _wait_permission(self, tool_name: str, reason: str, arguments: dict, allow_dir: bool = False) -> str:
         self._permission_result = None
         self._permission_event.clear()
+
+        if self._cancellation_token.cancelled:
+            return "cancel"
 
         self.bridge.publish(
             "permission_request",
@@ -72,8 +76,16 @@ class WebAgentSession:
             },
         )
 
-        self._permission_event.wait()
-        return self._permission_result or "deny"
+        while True:
+            permission_received = self._permission_event.wait(
+                timeout=0.1,
+            )
+
+            if self._cancellation_token.cancelled:
+                return "cancel"
+
+            if permission_received:
+                return self._permission_result or "deny"
 
     def _run_agent(self, message: str) -> None:
         with self._lock:
