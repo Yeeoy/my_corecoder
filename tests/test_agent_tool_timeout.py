@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from app.agent import Agent
 from app.cancellation import CancellationToken
 from app.permission import PermissionManager
+from app.run_context import RunContext
 from app.tools import AgentTool
 
 
@@ -53,7 +54,6 @@ def test_subagent_stops_after_tool_timeout(tmp_path, monkeypatch):
 
     # 不等真实的 30 秒，测试中把超时缩短到 50ms。
     agent_tool.timeout_seconds = 0.05
-
     parent_token = CancellationToken()
 
     # 必须先创建真正的父 Agent。
@@ -65,6 +65,7 @@ def test_subagent_stops_after_tool_timeout(tmp_path, monkeypatch):
         ),
         cancellation_token=parent_token,
     )
+    parent_agent._run_context = RunContext()
 
     # AgentTool.execute() 内部会在运行时导入 app.agent.Agent。
     # 替换成可控的 FakeSubAgent，避免调用真实 LLM。

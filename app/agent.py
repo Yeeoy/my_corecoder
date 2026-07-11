@@ -8,6 +8,7 @@ from app.events import EventBus, EventName
 from app.llm import LLM
 from app.permission import PermissionManager
 from app.prompt import system_prompt
+from app.run_context import RunContext
 from app.tools import AgentTool
 from app.tools.base import Tool, ToolResult
 
@@ -24,6 +25,7 @@ class Agent:
         permission_manager: PermissionManager | None = None,
         runtime_state=None,
         cancellation_token: CancellationToken | None = None,
+        parent_run_id: str | None = None,
     ):
         self.llm = llm
         self.tools = tools
@@ -39,6 +41,8 @@ class Agent:
         self.runtime_state = runtime_state
         self._permission_handler = None
         self._cancellation_token = cancellation_token
+        self.parent_run_id = parent_run_id
+        self._run_context = None
 
         # sub agent
         for t in self.tools:
@@ -89,6 +93,7 @@ class Agent:
         )
 
     def chat(self, user_input: str, on_token=None, on_tool=None, on_reasoning=None, permission_handler=None) -> str:
+        self._run_context = RunContext(parent_run_id=self.parent_run_id)
         self._permission_handler = permission_handler
         self.messages.append({"role": "user", "content": user_input})
         self.events.emit(

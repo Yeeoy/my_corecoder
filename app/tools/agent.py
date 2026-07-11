@@ -73,6 +73,8 @@ class AgentTool(Tool):
         from ..agent import Agent
 
         parent = self._parent_agent
+        if parent._run_context is None:
+            raise RuntimeError("AgentTool.execute called outside an active run")
         sub = Agent(
             llm=parent.llm,
             tools=[t for t in parent.tools if t.name != "agent"],  # no recursive agents
@@ -80,6 +82,7 @@ class AgentTool(Tool):
             cancellation_token=cancellation_token,
             permission_manager=parent.permission_manager,
             events=parent.events,
+            parent_run_id=parent._run_context.run_id,
         )
 
         try:

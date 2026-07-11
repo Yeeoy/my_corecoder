@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from app.cancellation import CancellationToken
+from app.run_context import RunContext
 from app.tools.agent import AgentTool
 
 
@@ -32,6 +33,7 @@ def test_subagent_inherits_parent_context(monkeypatch):
         _cancellation_token=CancellationToken(),
         permission_manager=object(),
         events=object(),
+        _run_context=RunContext(run_id="run-id"),
     )
 
     tool = AgentTool()
@@ -43,6 +45,7 @@ def test_subagent_inherits_parent_context(monkeypatch):
     assert captured["cancellation_token"] is injection_token
     assert captured["permission_manager"] is parent.permission_manager
     assert captured["events"] is parent.events
+    assert captured["parent_run_id"] == "run-id"
     # 顺带确认 execute 正常走完、包了前缀
     assert result.ok is True
     assert "[Sub-agent completed]" in result.content
