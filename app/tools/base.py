@@ -25,6 +25,7 @@ class Tool(ABC):
     parameters: dict
     timeout_seconds: int = 30
     parallel_safe: bool = True
+    supports_cancellation: bool = False
 
     @abstractmethod
     def execute(self, **kwargs) -> ToolResult: ...

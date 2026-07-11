@@ -41,8 +41,10 @@ class AgentTool(Tool):
 
     # set by Agent.__init__ after construction
     _parent_agent = None
+    supports_cancellation = True
+    timeout_seconds = 120
 
-    def execute(self, task: str) -> ToolResult:
+    def execute(self, task: str, cancellation_token=None) -> ToolResult:
         """Spawn a sub-agent, run it to completion, and return its summary.
 
         Returns:
@@ -75,7 +77,7 @@ class AgentTool(Tool):
             llm=parent.llm,
             tools=[t for t in parent.tools if t.name != "agent"],  # no recursive agents
             max_rounds=20,
-            cancellation_token=parent._cancellation_token,
+            cancellation_token=cancellation_token,
             permission_manager=parent.permission_manager,
             events=parent.events,
         )
@@ -100,6 +102,8 @@ class AgentTool(Tool):
                     "duration_ms": duration_ms,
                 },
             )
+        except InterruptedError:
+            raise
         except Exception as e:
             return ToolResult(
                 ok=False,

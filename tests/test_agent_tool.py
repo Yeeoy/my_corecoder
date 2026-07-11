@@ -36,11 +36,11 @@ def test_subagent_inherits_parent_context(monkeypatch):
 
     tool = AgentTool()
     tool._parent_agent = parent
-
-    result = tool.execute(task="anything")
+    injection_token = CancellationToken()
+    result = tool.execute(task="anything", cancellation_token=injection_token)
 
     # 用 `is`(身份)不是 `==`(相等):要证"同一个对象被传下去",而非"两个相等对象"。
-    assert captured["cancellation_token"] is parent._cancellation_token
+    assert captured["cancellation_token"] is injection_token
     assert captured["permission_manager"] is parent.permission_manager
     assert captured["events"] is parent.events
     # 顺带确认 execute 正常走完、包了前缀

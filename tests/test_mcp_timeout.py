@@ -5,12 +5,9 @@ import threading
 import pytest
 
 from app.mcp_client import MCPClientManager
+from app.mcp_config import MCPServerConfig
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="MCPClientManager._run_sync raises on timeout without cancelling the event-loop coroutine",
-)
 def test_mcp_run_sync_requests_coroutine_cancellation_after_timeout(tmp_path):
     """Timing out in the caller should cancel the coroutine on the MCP loop."""
 
@@ -65,3 +62,30 @@ def test_mcp_run_sync_requests_coroutine_cancellation_after_timeout(tmp_path):
         manager.close_sync()
 
     assert cancellation_observed
+
+
+def test_mcp_config_with_timeout(tmp_path, monkeypatch):
+    config = [
+        MCPServerConfig(name="test1", command="test1", timeout_seconds=5.0),
+        MCPServerConfig(name="test2", command="test2"),
+    ]
+
+    manager = MCPClientManager(
+        configs=config,
+        workspace_root=tmp_path,
+        call_timeout_seconds=30.0,
+    )
+
+    captured = {}
+
+    def fake_run_sync(coro, timeout=None):
+        coro.close()  # ← 关掉没 await 的协程,免 warning
+        captured["timeout"] = timeout
+        return "fake result"
+
+    monkeypatch.setattr(manager, "_run_sync", fake_run_sync)
+    monkeypatch.setattr(manager, "_ensure_loop", lambda: None)
+    manager.call_tool_sync(server_name="test1", tool_name="test1", arguments={})
+    assert captured["timeout"] == 5.0
+    manager.call_tool_sync(server_name="test2", tool_name="test2", arguments={})
+    assert captured["timeout"] == 30.0

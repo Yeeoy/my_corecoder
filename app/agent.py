@@ -366,7 +366,7 @@ class Agent:
         tool_call_token = None
         tool_arguments = dict(tc.arguments)
 
-        if getattr(tool, "supports_cancellation", False):
+        if tool.supports_cancellation:
             tool_call_token = CancellationToken(parent_token=self._cancellation_token)
             tool_arguments["cancellation_token"] = tool_call_token
 

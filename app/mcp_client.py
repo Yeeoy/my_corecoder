@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import json
 import logging
 import os
@@ -27,9 +28,15 @@ class MCPServerRuntime:
 
 
 class MCPClientManager:
-    def __init__(self, configs: list[MCPServerConfig], workspace_root: str | Path):
+    def __init__(
+        self,
+        configs: list[MCPServerConfig],
+        workspace_root: str | Path,
+        call_timeout_seconds: float = 30.0,
+    ):
         self.configs = {cfg.name: cfg for cfg in configs}
         self.workspace_root = Path(workspace_root).resolve()
+        self.call_timeout_seconds = call_timeout_seconds
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -124,12 +131,15 @@ class MCPClientManager:
         arguments: dict[str, Any],
     ) -> str:
         self._ensure_loop()
+        cfg = self.configs.get(server_name)
+        timeout = cfg.timeout_seconds if cfg and cfg.timeout_seconds else self.call_timeout_seconds
         return self._run_sync(
             self.call_tool(
                 server_name=server_name,
                 tool_name=tool_name,
                 arguments=arguments,
-            )
+            ),
+            timeout=timeout,
         )
 
     async def call_tool(
@@ -193,12 +203,14 @@ class MCPClientManager:
             return
 
         try:
-            self._run_sync(self.close(), timeout=10)
+            self._run_sync(self.close(), timeout=10.0)
         except Exception as e:
             logger.error("Error during shutdown: %s", e)
 
         if self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._loop.stop)
+            self._loop.call_soon_threadsafe(
+                self._loop.stop,
+            )
 
         if self._thread:
             self._thread.join(timeout=3)
@@ -237,12 +249,16 @@ class MCPClientManager:
         self._thread.start()
         self._ready.wait(timeout=5)
 
-    def _run_sync(self, coro, timeout: int | None = None):
+    def _run_sync(self, coro, timeout: float | None = None):
         if not self._loop:
             raise RuntimeError("MCP event loop is not running")
 
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result(timeout=timeout)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            raise
 
     @staticmethod
     def _format_tool_result(result) -> str:

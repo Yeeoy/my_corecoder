@@ -2,8 +2,6 @@ import threading
 import time
 from types import SimpleNamespace
 
-import pytest
-
 from app.agent import Agent
 from app.cancellation import CancellationToken
 from app.permission import PermissionManager
@@ -22,12 +20,6 @@ def make_tool_call(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "AgentTool does not use a per-call cancellation token, so the sub-agent continues after the outer tool timeout"
-    ),
-)
 def test_subagent_stops_after_tool_timeout(tmp_path, monkeypatch):
     """A timed-out AgentTool must not continue running in the background."""
 

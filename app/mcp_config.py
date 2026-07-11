@@ -15,6 +15,7 @@ class MCPServerConfig:
     # Environment variable name that holds the API key for auth retry on 429.
     # If set and the env var exists, the client will reconnect with the key on rate limit.
     auth_key: str | None = None
+    timeout_seconds: float | None = None
 
 
 def load_mcp_config(path: str | Path) -> list[MCPServerConfig]:
@@ -39,6 +40,7 @@ def load_mcp_config(path: str | Path) -> list[MCPServerConfig]:
                 args=cfg.get("args", []),
                 env=cfg.get("env", {}),
                 auth_key=cfg.get("auth_key"),
+                timeout_seconds=cfg.get("timeout_seconds"),
             )
         )
 
