@@ -3,6 +3,7 @@
 import time
 from pathlib import Path
 
+from app.file_journal import FileJournal
 from app.tools.base import Tool, ToolResult
 from app.tools.edit import _changed_files
 
@@ -34,6 +35,7 @@ class WriteFileTool(Tool):
         },
         "required": ["file_path", "content"],
     }
+    wants_journal: bool = True
 
     def __init__(self, workspace_root: str | Path | None = None):
         self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
@@ -44,7 +46,12 @@ class WriteFileTool(Tool):
             return p.resolve()
         return (self.workspace_root / p).resolve()
 
-    def execute(self, file_path: str, content: str) -> ToolResult:
+    def execute(
+        self,
+        file_path: str,
+        content: str,
+        journal: FileJournal | None = None,
+    ) -> ToolResult:
         """Write *content* to *file_path*, creating parent directories.
 
         Returns:
@@ -61,6 +68,8 @@ class WriteFileTool(Tool):
                 parents=True,
                 exist_ok=True,
             )
+            if journal is not None:
+                journal.snapshot_before_write(p)
             p.write_text(content, encoding="utf-8")
             _changed_files.add(str(p))
             n_lines = content.count("\n") + (1 if content and not content.endswith("\n") else 0)

@@ -6,11 +6,12 @@ substring must appear exactly once in the file, which eliminates ambiguity
 and makes edits safe and reviewable.
 """
 
-import difflib
 import time
 from pathlib import Path
 
+from app.file_journal import FileJournal
 from app.tools.base import Tool, ToolResult
+from app.utils import _unified_diff
 
 MAX_RESULTS = 3000
 
@@ -50,6 +51,7 @@ class EditFileTool(Tool):
         },
         "required": ["file_path", "old_string", "new_string"],
     }
+    wants_journal: bool = True
 
     def __init__(self, workspace_root: str | Path | None = None):
         self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
@@ -60,7 +62,13 @@ class EditFileTool(Tool):
             return p.resolve()
         return (self.workspace_root / p).resolve()
 
-    def execute(self, file_path: str, old_string: str, new_string: str) -> ToolResult:
+    def execute(
+        self,
+        file_path: str,
+        old_string: str,
+        new_string: str,
+        journal: FileJournal | None = None,
+    ) -> ToolResult:
         """Replace *old_string* with *new_string* in *file_path*.
 
         *old_string* must appear exactly once in the file. When it doesn't,
@@ -130,11 +138,13 @@ class EditFileTool(Tool):
                 )
 
             new_content = content.replace(old_string, new_string, 1)
+            if journal is not None:
+                journal.snapshot_before_write(p)
             p.write_text(new_content, encoding="utf-8")
             _changed_files.add(str(p))
 
             # generate a unified diff so the user/LLM can see exactly what changed
-            diff = _unified_diff(content, new_content, str(p))
+            diff = _unified_diff(content, new_content, str(p), max_result=MAX_RESULTS)
             return ToolResult(
                 ok=True,
                 content=f"Edited {file_path}\n{diff}",
@@ -155,21 +165,3 @@ class EditFileTool(Tool):
                     "duration_ms": int((time.perf_counter() - start) * 1000),
                 },
             )
-
-
-def _unified_diff(old: str, new: str, filename: str, context: int = 3) -> str:
-    """Generate a compact unified diff between old and new file content."""
-    old_lines = old.splitlines(keepends=True)
-    new_lines = new.splitlines(keepends=True)
-    diff = difflib.unified_diff(
-        old_lines,
-        new_lines,
-        fromfile=f"a/{filename}",
-        tofile=f"b/{filename}",
-        n=context,
-    )
-    result = "".join(diff)
-    # truncate enormous diffs
-    if len(result) > MAX_RESULTS:
-        result = result[:MAX_RESULTS] + "\n... (diff truncated)\n"
-    return result

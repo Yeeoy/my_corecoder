@@ -375,6 +375,9 @@ class Agent:
             tool_call_token = CancellationToken(parent_token=self._cancellation_token)
             tool_arguments["cancellation_token"] = tool_call_token
 
+        if tool.wants_journal:
+            tool_arguments["journal"] = self._run_context.journal
+
         pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         pool_shutdown_done = False
 
@@ -492,6 +495,20 @@ class Agent:
                         "content": "interrupted",
                     }
                 )
+
+    def _require_run_context(self) -> RunContext:
+        if self._run_context is None:
+            raise RuntimeError("No active run context")
+        return self._run_context
+
+    def file_diff(self) -> str:
+        return self._require_run_context().journal.diff()
+
+    def rollback_file_changes(self) -> None:
+        self._require_run_context().journal.rollback()
+
+    def accept_file_changes(self) -> None:
+        self._require_run_context().journal.accept()
 
     def reset(self):
         self.messages.clear()
