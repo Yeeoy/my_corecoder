@@ -36,3 +36,13 @@ def test_subagent_run_context_links_to_parent(monkeypatch):
     tool.execute(task="x", cancellation_token=None)
 
     assert captured["parent_run_id"] == parent._run_context.run_id
+
+
+def test_run_contexts_have_independent_journals(tmp_path):
+    first_context = RunContext()
+    second_context = RunContext()
+    assert first_context.journal is not second_context.journal
+    target_path = tmp_path / "test.txt"
+    first_context.journal.snapshot_before_write(target_path)
+    assert first_context.journal.changes() == [(str(target_path), "created")]
+    assert second_context.journal.changes() == []
